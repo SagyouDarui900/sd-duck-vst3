@@ -248,10 +248,14 @@ void HorizontalBarSlider::mouseDown(const juce::MouseEvent& e)
         {
             if (inlineEditor != nullptr)
             {
-                const float parsed = inlineEditor->getText().getFloatValue();
-                param->beginChangeGesture();
-                param->setValueNotifyingHost(param->convertTo0to1(parsed));
-                param->endChangeGesture();
+                const auto text = inlineEditor->getText().trim();
+                if (text.containsAnyOf("0123456789"))
+                {
+                    const float parsed = text.getFloatValue();
+                    param->beginChangeGesture();
+                    param->setValueNotifyingHost(param->convertTo0to1(parsed));
+                    param->endChangeGesture();
+                }
             }
             safeDestroy();
         };
@@ -597,7 +601,13 @@ void VisualizerComponent::paint(juce::Graphics& g)
 SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
     : AudioProcessorEditor(&p), audioProcessor(p), visualizer(p)
 {
-    audioProcessor.getVisualFifo().reset();
+    // 既存パケットを安全に読み捨て (SPSC スレッド安全な FIFO フラッシュ)
+    VisualPacket dummy;
+    while (audioProcessor.getVisualFifo().pop(dummy)) {}
+
+    currentTheme.isLight = audioProcessor.getIsLightTheme();
+    btnThemeToggle.setButtonText(currentTheme.isLight ? "DARK" : "LIGHT");
+
     setLookAndFeel(&lookAndFeel);
 
     auto& apvts = audioProcessor.getAPVTS();
@@ -693,6 +703,7 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
     {
         currentTheme.isLight = !currentTheme.isLight;
         btnThemeToggle.setButtonText(currentTheme.isLight ? "DARK" : "LIGHT");
+        audioProcessor.setIsLightTheme(currentTheme.isLight);
         applyTheme();
     };
     addAndMakeVisible(btnThemeToggle);
@@ -863,6 +874,7 @@ void SDDuckAudioProcessorEditor::updateModeDependencies()
     {
         sliderThreshOrVel->setEnabledState(false);
         sliderThreshOrVel->setCustomLabel("Threshold");
+        sliderThreshOrVel->updateParameter(apvts.getParameter(SDDuckAudioProcessor::paramThreshold));
         sliderHold->setEnabledState(true);
         sliderScHpf->setEnabledState(false);
         sliderScLpf->setEnabledState(false);

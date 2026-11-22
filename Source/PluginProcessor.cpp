@@ -166,14 +166,16 @@ bool SDDuckAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) co
 
 void SDDuckAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-    duckingEngine.prepare(sampleRate, samplesPerBlock);
-    crossoverFilter.prepare(sampleRate, samplesPerBlock);
+    const int safeBlockSize = std::max(samplesPerBlock, 8192);
 
-    dryBuffer.setSize(2, samplesPerBlock);
-    filteredScBuffer.setSize(2, samplesPerBlock);
+    duckingEngine.prepare(sampleRate, safeBlockSize);
+    crossoverFilter.prepare(sampleRate, safeBlockSize);
 
-    sampleGains.resize(static_cast<size_t>(samplesPerBlock));
-    sampleScAmps.resize(static_cast<size_t>(samplesPerBlock));
+    dryBuffer.setSize(2, safeBlockSize);
+    filteredScBuffer.setSize(2, safeBlockSize);
+
+    sampleGains.resize(static_cast<size_t>(safeBlockSize));
+    sampleScAmps.resize(static_cast<size_t>(safeBlockSize));
 
     visualFifo.reset();
     sampleAccumulator = 0;

@@ -103,6 +103,9 @@ public:
     float getLastSidechainPeakDb() const noexcept { return lastScPeakDb.load(std::memory_order_relaxed); }
     bool getIsSidechainActive() const noexcept { return lastScActive.load(std::memory_order_relaxed); }
 
+    bool getIsLightTheme() const noexcept { return isLightTheme.load(std::memory_order_relaxed); }
+    void setIsLightTheme(bool isLight) noexcept { isLightTheme.store(isLight, std::memory_order_relaxed); }
+
     // パラメータID定数
     static const juce::String paramMode;
     static const juce::String paramSyncRate;
@@ -133,6 +136,7 @@ private:
 
     // パケット集計用
     LockFreeFifo<VisualPacket, 2048> visualFifo;
+    std::atomic<bool> isLightTheme { false };
     std::atomic<float> lastScPeakDb { -100.0f };
     std::atomic<bool> lastScActive { false };
     int sampleAccumulator = 0;
