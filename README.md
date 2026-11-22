@@ -151,7 +151,7 @@ DAWの再生位置への完全同期、外部オーディオ入力（サイド�
 ### ビルド実行手順
 ```powershell
 # 1. ソースコードの取得
-git clone https://github.com/sagyoudarui/sd-duck-vst3.git
+git clone https://github.com/SagyouDarui900/sd-duck-vst3.git
 cd sd-duck-vst3
 
 # 2. CMakeの構成 (JUCE 8 が自動取得されます)
