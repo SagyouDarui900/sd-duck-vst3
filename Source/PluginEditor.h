@@ -15,8 +15,8 @@ namespace UIColors
     const juce::Colour Border_Light  = juce::Colour::fromString("#FF4A4A4A");
     const juce::Colour Border_Focus  = juce::Colour::fromString("#FF3BA596");
     const juce::Colour Grid_Line     = juce::Colour::fromString("#FF2A2A2A");
-    const juce::Colour Text_Primary  = juce::Colour::fromString("#FFE0E0E0");
-    const juce::Colour Text_Secondary= juce::Colour::fromString("#FF9E9E9E");
+    const juce::Colour Text_Primary  = juce::Colour::fromString("#FFF0F0F0");
+    const juce::Colour Text_Secondary= juce::Colour::fromString("#FFB8B8B8");
     const juce::Colour Text_Disabled = juce::Colour::fromString("#FF5A5A5A");
     const juce::Colour Accent_Teal   = juce::Colour::fromString("#FF2D9384");
     const juce::Colour Bar_Fill      = juce::Colour::fromString("#FF265E56");

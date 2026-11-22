@@ -118,15 +118,15 @@ void HorizontalBarSlider::paint(juce::Graphics& g)
     const int pad = 8;
     auto textArea = bounds.reduced(pad, 0);
 
-    // ラベル (Segoe UI 11px)
-    g.setFont(juce::FontOptions("Segoe UI", 11.0f, juce::Font::plain));
+    // ラベル (Segoe UI 12.5px bold で視認性向上)
+    g.setFont(juce::FontOptions("Segoe UI", 12.5f, juce::Font::bold));
     g.setColour(isEnabled ? UIColors::Text_Secondary : UIColors::Text_Disabled);
     g.drawText(label, textArea, juce::Justification::centredLeft, true);
 
-    // 数値 (Consolas 11px 等幅)
+    // 数値 (Consolas 12.5px 等幅)
     if (isEnabled && param != nullptr)
     {
-        g.setFont(juce::FontOptions("Consolas", 11.0f, juce::Font::plain));
+        g.setFont(juce::FontOptions("Consolas", 12.5f, juce::Font::plain));
         g.setColour(UIColors::Text_Primary);
         g.drawText(getFormattedValue(), textArea, juce::Justification::centredRight, true);
     }

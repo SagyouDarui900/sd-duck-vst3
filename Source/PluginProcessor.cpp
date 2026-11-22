@@ -246,8 +246,8 @@ void SDDuckAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     const float releaseSec = std::max(0.001f, releaseMs * 0.001f);
     const float thresholdLinear = std::pow(10.0f, thresholdDb / 20.0f);
     const float hysteresisLinear = std::pow(10.0f, (thresholdDb - 3.0f) / 20.0f);
-    const float attCoeff = std::exp(-samplePeriod / attackSec);
-    const float relCoeff = std::exp(-samplePeriod / releaseSec);
+    const float attCoeff = std::exp(-samplePeriod / std::max(0.0001f, attackSec * 0.33f));
+    const float relCoeff = std::exp(-samplePeriod / std::max(0.001f, releaseSec * 0.33f));
     const double ppqAdvancePerSample = (sr > 0.0) ? ((bpm / 60.0) / sr) : 0.0;
 
     // サイドチェイン入力の準備 (ch 2, 3)

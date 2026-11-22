@@ -194,8 +194,10 @@ public:
                 {
                     const float envDb = (envelopeFollower > 1e-5f) ? (20.0f * std::log10(envelopeFollower)) : -100.0f;
                     const float overDb = envDb - thresholdDb;
-                    const float ratio = juce::jlimit(0.0f, 1.0f, overDb / 24.0f);
-                    targetGain = 1.0f - (depth * ratio);
+                    // 6dB超過でフルDepthに到達する高感度レスポンス
+                    const float rawRatio = juce::jlimit(0.0f, 1.0f, overDb / 6.0f);
+                    const float curvedRatio = applyCurve(rawRatio, -curve);
+                    targetGain = 1.0f - (depth * curvedRatio);
                 }
             }
         }
