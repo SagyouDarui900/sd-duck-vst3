@@ -257,7 +257,7 @@ void SDDuckAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
 
     // サイドチェイン入力の準備 (ch 2, 3)
     filteredScBuffer.setSize(2, numSamples, false, false, true);
-    if (totalNumInputChannels >= 4)
+    if (totalNumInputChannels >= 4 && buffer.getNumChannels() >= 4)
     {
         filteredScBuffer.copyFrom(0, 0, buffer, 2, 0, numSamples);
         filteredScBuffer.copyFrom(1, 0, buffer, 3, 0, numSamples);
@@ -487,6 +487,7 @@ juce::AudioProcessorEditor* SDDuckAudioProcessor::createEditor()
 void SDDuckAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
+    state.setProperty("isLightTheme", isLightTheme.load(std::memory_order_relaxed), nullptr);
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
     copyXmlToBinary(*xml, destData);
 }
@@ -496,7 +497,11 @@ void SDDuckAudioProcessor::setStateInformation(const void* data, int sizeInBytes
     std::unique_ptr<juce::XmlElement> xmlState(getXmlFromBinary(data, sizeInBytes));
     if (xmlState != nullptr && xmlState->hasTagName(apvts.state.getType()))
     {
-        apvts.replaceState(juce::ValueTree::fromXml(*xmlState));
+        auto tree = juce::ValueTree::fromXml(*xmlState);
+        if (tree.hasProperty("isLightTheme"))
+            setIsLightTheme(static_cast<bool>(tree.getProperty("isLightTheme")));
+
+        apvts.replaceState(tree);
     }
 }
 

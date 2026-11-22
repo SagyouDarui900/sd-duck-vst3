@@ -787,7 +787,7 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
 
     setSize(680, 390);
     setResizable(true, true);
-    setResizeLimits(550, 340, 1920, 1080);
+    setResizeLimits(620, 340, 1920, 1080);
 
     startTimerHz(60);
 }
