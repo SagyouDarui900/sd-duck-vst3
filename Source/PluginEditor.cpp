@@ -362,14 +362,31 @@ void VisualizerComponent::updateFromFifo()
             silenceFrames = 0;
     }
 
-    if (minGainFound < 1.0f)
+    if (minGainFound < 0.999f)
     {
         const float grDb = 20.0f * std::log10(std::max(0.00001f, minGainFound));
         currentMaxGrDb = grDb;
+
+        // ピークホールド更新: より強い減衰が来たら即時更新
+        if (grDb < peakHoldGrDb)
+        {
+            peakHoldGrDb = grDb;
+            peakHoldFrames = 45; // 60fpsで約0.75秒ホールド
+        }
     }
     else
     {
         currentMaxGrDb = 0.0f;
+    }
+
+    // ホールド時間経過後にスムーズに0.0dBへ減衰
+    if (peakHoldFrames > 0)
+    {
+        peakHoldFrames--;
+    }
+    else
+    {
+        peakHoldGrDb = std::min(0.0f, peakHoldGrDb + 0.4f);
     }
 
     // 1秒無音 (約60フレーム) でフリーズ
@@ -593,10 +610,11 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
     addAndMakeVisible(comboTimebase);
 
     lblMaxGr.setFont(juce::FontOptions("Consolas", 11.0f, juce::Font::plain));
-    lblMaxGr.setColour(juce::Label::backgroundColourId, UIColors::Bg_Canvas.withAlpha(0.8f));
+    lblMaxGr.setColour(juce::Label::backgroundColourId, UIColors::Bg_Canvas.withAlpha(0.85f));
     lblMaxGr.setColour(juce::Label::textColourId, UIColors::Text_Primary);
-    lblMaxGr.setText("Max GR: 0.0 dB", juce::dontSendNotification);
-    lblMaxGr.setJustificationType(juce::Justification::centredRight);
+    lblMaxGr.setColour(juce::Label::outlineColourId, UIColors::Border_Dark);
+    lblMaxGr.setText("Max GR:  0.0 dB", juce::dontSendNotification);
+    lblMaxGr.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(lblMaxGr);
 
     // Control Panel 水平バーゲージスライダー
@@ -722,10 +740,14 @@ void SDDuckAudioProcessorEditor::timerCallback()
 {
     visualizer.updateFromFifo();
 
-    // Max GR 表示更新
+    // Max GR 表示更新（等幅フォントかつ固定桁数で横揺れ防止）
     const float maxGrDb = visualizer.getCurrentMaxGrDb();
     std::ostringstream ss;
-    ss << "Max GR: " << std::fixed << std::setprecision(1) << maxGrDb << " dB";
+    ss << "Max GR: ";
+    if (maxGrDb > -0.05f)
+        ss << " 0.0 dB";
+    else
+        ss << std::fixed << std::setprecision(1) << maxGrDb << " dB";
     lblMaxGr.setText(ss.str(), juce::dontSendNotification);
 
     // SC 入力ステータス更新

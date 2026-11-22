@@ -81,7 +81,7 @@ public:
 
     void updateFromFifo();
     void setTimebaseIndex(int index);
-    float getCurrentMaxGrDb() const noexcept { return currentMaxGrDb; }
+    float getCurrentMaxGrDb() const noexcept { return peakHoldGrDb; }
 
 private:
     void rebuildBackgroundCache();
@@ -103,6 +103,8 @@ private:
     int maxHistoryPoints = 2048;
 
     float currentMaxGrDb = 0.0f;
+    float peakHoldGrDb = 0.0f;
+    int peakHoldFrames = 0;
     int timebaseIdx = 0; // 0: 1 Beat, 1: 2 Beats, 2: 1 Bar, 3: 500 ms, 4: 1000 ms
 
     int silenceFrames = 0;
