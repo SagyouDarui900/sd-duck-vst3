@@ -3,7 +3,7 @@ name: Build SD-Duck VST3
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - 'v*'
   workflow_dispatch:
 
 jobs:
