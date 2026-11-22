@@ -60,7 +60,11 @@ DAWの再生位置への完全同期、外部オーディオ入力（サイド�
 - **Max GR 数値表示**:
   ピークホールド（約0.75秒間保持）および減衰復帰（Decay）処理を施した最大ゲインリダクション値を等幅フォントで右下に表示します。
 - **ルーティング診断**:
-  トップバーにサイドチェイン入力（`ch 3/4`）の受信状態（`SC: ACTIVE (-XX.X dB)` または `SC: NO SIGNAL`）を表示します。
+  トップバーにサイドチェイン入力（`ch 3/4`）の受信状態を表示します。
+  - `Audio` モード時: 信号受信時は `SC: ACTIVE (-XX.X dB)`（緑色）、未受信時は `SC: NO SIGNAL`（赤色）
+  - `Sync` / `MIDI` モード時: サイドチェイン入力を必要としないため `SC: READY`（グレー）
+- **テーマ切り替え**:
+  トップバー右端の `[LIGHT]` / `[DARK]` ボタンで、UIの配色をダークテーマとライトテーマの間で切り替えます。
 - **描画負荷の抑制**:
   再生停止中でかつ入力信号が無音（-90 dB以下）の状態が1秒継続した場合、波形描画タイマーの画面更新を自動休止します。
 
@@ -147,17 +151,19 @@ DAWの再生位置への完全同期、外部オーディオ入力（サイド�
 ### ビルド実行手順
 ```powershell
 # 1. ソースコードの取得
-git clone https://github.com/your-username/sd-duck-vst3.git
+git clone https://github.com/sagyoudarui/sd-duck-vst3.git
 cd sd-duck-vst3
 
 # 2. CMakeの構成 (JUCE 8 が自動取得されます)
 cmake -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release
 
-# 3. ビルド
+# 3. ビルド (管理者権限で実行したターミナルを推奨)
 cmake --build build --config Release --target SD-Duck_VST3
 ```
 
 ビルドが完了すると、`build/SD-Duck_artefacts/Release/VST3/SD-Duck.vst3` に成果物が生成され、`C:\Program Files\Common Files\VST3\` に自動的に上書き配置されます。
+
+> **管理者権限に関する注意**: `C:\Program Files\` 配下のディレクトリへのファイル書き込みには管理者権限が必要です。通常権限のターミナルで実行して書き込み権限エラー（Access Denied）が発生した場合は、管理者として実行した PowerShell またはコマンドプロンプトからビルドコマンドを実行してください。
 
 ---
 

@@ -19,7 +19,8 @@ struct ThemeColors
     juce::Colour gridLine() const     { return isLight ? juce::Colour::fromString("#FFE0E0E0") : juce::Colour::fromString("#FF2A2A2A"); }
     juce::Colour textPrimary() const  { return isLight ? juce::Colour::fromString("#FF1A1A1A") : juce::Colour::fromString("#FFF0F0F0"); }
     juce::Colour textSecondary() const{ return isLight ? juce::Colour::fromString("#FF555555") : juce::Colour::fromString("#FFB8B8B8"); }
-    juce::Colour textDisabled() const { return isLight ? juce::Colour::fromString("#FF999999") : juce::Colour::fromString("#FF5A5A5A"); }
+    juce::Colour textDisabled() const { return isLight ? juce::Colour::fromString("#FF888888") : juce::Colour::fromString("#FF787878"); }
+    juce::Colour gridLabel() const    { return isLight ? juce::Colour::fromString("#FF666666") : juce::Colour::fromString("#FF8A9292"); }
     juce::Colour accentTeal() const   { return isLight ? juce::Colour::fromString("#FF228274") : juce::Colour::fromString("#FF2D9384"); }
     juce::Colour barFill() const      { return isLight ? juce::Colour::fromString("#FF88C2B8") : juce::Colour::fromString("#FF265E56"); }
     juce::Colour wavePost() const     { return isLight ? juce::Colour::fromString("#FF4F6765") : juce::Colour::fromString("#FFC8D6D5"); }
@@ -27,6 +28,35 @@ struct ThemeColors
     juce::Colour grMid() const        { return isLight ? juce::Colour::fromString("#FFBD7A11") : juce::Colour::fromString("#FFD99B26"); }
     juce::Colour grHigh() const       { return isLight ? juce::Colour::fromString("#FFB83126") : juce::Colour::fromString("#FFD9483B"); }
     juce::Colour statusWarn() const   { return isLight ? juce::Colour::fromString("#FFC03222") : juce::Colour::fromString("#FFC94A38"); }
+};
+
+// フラット直角 (角丸0px) カスタム LookAndFeel
+class SDDuckLookAndFeel : public juce::LookAndFeel_V4
+{
+public:
+    SDDuckLookAndFeel(const ThemeColors& t) : theme(t) {}
+
+    void setTheme(const ThemeColors& t) { theme = t; }
+
+    void drawButtonBackground(juce::Graphics& g, juce::Button& button,
+                              const juce::Colour& backgroundColour,
+                              bool shouldDrawButtonAsHighlighted,
+                              bool shouldDrawButtonAsDown) override;
+
+    void drawButtonText(juce::Graphics& g, juce::TextButton& button,
+                        bool shouldDrawButtonAsHighlighted,
+                        bool shouldDrawButtonAsDown) override;
+
+    void drawComboBox(juce::Graphics& g, int width, int height, bool isButtonDown,
+                      int buttonX, int buttonY, int buttonW, int buttonH,
+                      juce::ComboBox& box) override;
+
+    juce::Font getComboBoxFont(juce::ComboBox& box) override;
+
+    void drawPopupMenuBackground(juce::Graphics& g, int width, int height) override;
+
+private:
+    ThemeColors theme;
 };
 
 // 水平バーゲージスライダー
@@ -142,6 +172,7 @@ private:
 
     SDDuckAudioProcessor& audioProcessor;
     ThemeColors currentTheme;
+    SDDuckLookAndFeel lookAndFeel { currentTheme };
 
     // Top Bar
     juce::TextButton btnModeSync { "SYNC" };

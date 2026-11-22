@@ -3,6 +3,77 @@
 #include <sstream>
 
 // ==============================================================================
+// SDDuckLookAndFeel 実装 (Anti-AI Slop: 角丸0px・フラット直角デザイン)
+// ==============================================================================
+void SDDuckLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& button,
+                                            const juce::Colour&,
+                                            bool shouldDrawButtonAsHighlighted,
+                                            bool)
+{
+    const auto bounds = button.getLocalBounds();
+    const bool isOn = button.getToggleState();
+
+    juce::Colour bg = isOn ? theme.accentTeal()
+                           : (shouldDrawButtonAsHighlighted ? theme.bgHover() : theme.bgControl());
+
+    g.setColour(bg);
+    g.fillRect(bounds);
+
+    g.setColour(theme.borderDark());
+    g.drawRect(bounds, 1);
+}
+
+void SDDuckLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& button,
+                                      bool,
+                                      bool)
+{
+    const auto bounds = button.getLocalBounds();
+    const bool isOn = button.getToggleState();
+
+    g.setFont(juce::FontOptions("Segoe UI", 12.0f, juce::Font::bold));
+    g.setColour(isOn ? theme.textPrimary() : theme.textSecondary());
+    g.drawText(button.getButtonText(), bounds, juce::Justification::centred, false);
+}
+
+void SDDuckLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height, bool,
+                                    int, int, int, int,
+                                    juce::ComboBox&)
+{
+    const auto bounds = juce::Rectangle<int>(0, 0, width, height);
+
+    g.setColour(theme.bgControl());
+    g.fillRect(bounds);
+
+    g.setColour(theme.borderDark());
+    g.drawRect(bounds, 1);
+
+    // フラットな三角矢印
+    const int arrowSize = 6;
+    const int arrowX = width - 13;
+    const int arrowY = height / 2 - 2;
+
+    juce::Path p;
+    p.addTriangle(static_cast<float>(arrowX), static_cast<float>(arrowY),
+                  static_cast<float>(arrowX + arrowSize), static_cast<float>(arrowY),
+                  static_cast<float>(arrowX + arrowSize * 0.5f), static_cast<float>(arrowY + 4));
+    g.setColour(theme.textSecondary());
+    g.fillPath(p);
+}
+
+juce::Font SDDuckLookAndFeel::getComboBoxFont(juce::ComboBox&)
+{
+    return juce::FontOptions("Segoe UI", 11.5f, juce::Font::bold);
+}
+
+void SDDuckLookAndFeel::drawPopupMenuBackground(juce::Graphics& g, int width, int height)
+{
+    g.setColour(theme.bgControl());
+    g.fillRect(0, 0, width, height);
+    g.setColour(theme.borderDark());
+    g.drawRect(0, 0, width, height, 1);
+}
+
+// ==============================================================================
 // HorizontalBarSlider 実装
 // ==============================================================================
 HorizontalBarSlider::HorizontalBarSlider(juce::RangedAudioParameter* parameter,
@@ -122,11 +193,11 @@ void HorizontalBarSlider::paint(juce::Graphics& g)
     g.setColour(isEnabled ? theme.textSecondary() : theme.textDisabled());
     g.drawText(label, textArea, juce::Justification::centredLeft, true);
 
-    // 数値 (Consolas 12.5px 等幅)
-    if (isEnabled && param != nullptr)
+    // 数値 (Consolas 12.5px 等幅: 無効時も設定値を確認できるよう薄く描画)
+    if (param != nullptr)
     {
         g.setFont(juce::FontOptions("Consolas", 12.5f, juce::Font::plain));
-        g.setColour(theme.textPrimary());
+        g.setColour(isEnabled ? theme.textPrimary() : theme.textDisabled());
         g.drawText(getFormattedValue(), textArea, juce::Justification::centredRight, true);
     }
 }
@@ -290,9 +361,11 @@ void VisualizerComponent::rebuildBackgroundCache()
         g.setColour(theme.gridLine());
         g.drawHorizontalLine(y, 0.0f, static_cast<float>(w));
 
-        g.setColour(theme.textDisabled());
+        g.setColour(theme.gridLabel());
         juce::String text = juce::String(static_cast<int>(db)) + "dB";
-        g.drawText(text, 6, std::max(0, y - 12), 40, 12, juce::Justification::bottomLeft);
+        // -24dB は左下の comboTimebase (幅110px, x=8) と重ならないよう x=122 に配置
+        const int textX = (db <= -23.0f) ? 122 : 6;
+        g.drawText(text, textX, std::max(0, y - 13), 42, 12, juce::Justification::bottomLeft);
     }
 
     g.setColour(theme.gridLine());
@@ -604,11 +677,12 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
     btnSplitToggle.setClickingTogglesState(true);
     const bool initialSplit = *apvts.getRawParameterValue(SDDuckAudioProcessor::paramSplitEnabled) > 0.5f;
     btnSplitToggle.setToggleState(initialSplit, juce::dontSendNotification);
-    btnSplitToggle.setButtonText(initialSplit ? "ON" : "OFF");
+    btnSplitToggle.setButtonText(initialSplit ? "Split: ON" : "Split: OFF");
     btnSplitToggle.onClick = [this]()
     {
         const bool active = btnSplitToggle.getToggleState();
-        btnSplitToggle.setButtonText(active ? "ON" : "OFF");
+        btnSplitToggle.setButtonText(active ? "Split: ON" : "Split: OFF");
+        sliderSplitFreq->setEnabledState(active);
         if (auto* param = audioProcessor.getAPVTS().getParameter(SDDuckAudioProcessor::paramSplitEnabled))
         {
             param->beginChangeGesture();
@@ -618,7 +692,8 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
     };
     addAndMakeVisible(btnSplitToggle);
 
-    sliderSplitFreq = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramSplitFreq), "Low Split", "Hz");
+    sliderSplitFreq = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramSplitFreq), "Split Freq", "Hz");
+    sliderSplitFreq->setEnabledState(initialSplit);
     addAndMakeVisible(sliderSplitFreq.get());
 
     const int initialTarget = static_cast<int>(*apvts.getRawParameterValue(SDDuckAudioProcessor::paramChannelMode));
@@ -640,9 +715,11 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
     updateModeDependencies();
     applyTheme();
 
-    setSize(680, 380);
+    setLookAndFeel(&lookAndFeel);
+
+    setSize(680, 390);
     setResizable(true, true);
-    setResizeLimits(500, 300, 1920, 1080);
+    setResizeLimits(550, 340, 1920, 1080);
 
     startTimerHz(60);
 }
@@ -650,10 +727,13 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
 SDDuckAudioProcessorEditor::~SDDuckAudioProcessorEditor()
 {
     stopTimer();
+    setLookAndFeel(nullptr);
 }
 
 void SDDuckAudioProcessorEditor::applyTheme()
 {
+    lookAndFeel.setTheme(currentTheme);
+
     // 各コンポーネントへテーマ色を伝達
     visualizer.setTheme(currentTheme);
 
@@ -784,6 +864,11 @@ void SDDuckAudioProcessorEditor::timerCallback()
 
     const int currentTarget = static_cast<int>(*apvts.getRawParameterValue(SDDuckAudioProcessor::paramChannelMode));
     btnTargetChannel.setButtonText(currentTarget == 0 ? "Target: Stereo" : "Target: Mid Only");
+
+    const bool splitActive = *apvts.getRawParameterValue(SDDuckAudioProcessor::paramSplitEnabled) > 0.5f;
+    btnSplitToggle.setToggleState(splitActive, juce::dontSendNotification);
+    btnSplitToggle.setButtonText(splitActive ? "Split: ON" : "Split: OFF");
+    sliderSplitFreq->setEnabledState(splitActive);
 }
 
 void SDDuckAudioProcessorEditor::paint(juce::Graphics& g)
@@ -797,7 +882,7 @@ void SDDuckAudioProcessorEditor::resized()
     const int h = getHeight();
 
     constexpr int topBarHeight = 28;
-    constexpr int controlPanelHeight = 110;
+    constexpr int controlPanelHeight = 114; // 38px * 3行
     const int visualizerHeight = h - topBarHeight - controlPanelHeight;
 
     // --- Top Bar (28px) ---
@@ -827,7 +912,7 @@ void SDDuckAudioProcessorEditor::resized()
     comboTimebase.setBounds(8, topBarHeight + visualizerHeight - 26, 110, 20);
     lblMaxGr.setBounds(w - 130, topBarHeight + visualizerHeight - 26, 122, 20);
 
-    // --- Control Panel (3行 x 4列, 110px) ---
+    // --- Control Panel (3行 x 4列 = 12セル均等配置, 114px) ---
     auto controlArea = juce::Rectangle<int>(0, topBarHeight + visualizerHeight, w, controlPanelHeight);
 
     const int colWidth = w / 4;
@@ -835,27 +920,28 @@ void SDDuckAudioProcessorEditor::resized()
 
     auto getCellBounds = [&](int row, int col) -> juce::Rectangle<int>
     {
-        return juce::Rectangle<int>(col * colWidth, controlArea.getY() + row * rowHeight, colWidth, rowHeight);
+        const int x = col * colWidth;
+        const int cellW = (col == 3) ? (w - x) : colWidth;
+        const int y = controlArea.getY() + row * rowHeight;
+        const int cellH = (row == 2) ? (controlArea.getBottom() - y) : rowHeight;
+        return juce::Rectangle<int>(x, y, cellW, cellH);
     };
 
-    // 行 0
+    // 行 0: 基本 / アタック / スプリットON・OFF / SC HPF
     sliderDepth->setBounds(getCellBounds(0, 0));
     sliderAttack->setBounds(getCellBounds(0, 1));
+    btnSplitToggle.setBounds(getCellBounds(0, 2));
+    sliderScHpf->setBounds(getCellBounds(0, 3));
 
-    auto splitCell = getCellBounds(0, 2);
-    btnSplitToggle.setBounds(splitCell.getX(), splitCell.getY(), 40, splitCell.getHeight());
-    sliderSplitFreq->setBounds(splitCell.getX() + 40, splitCell.getY(), splitCell.getWidth() - 40, splitCell.getHeight());
-
-    sliderMix->setBounds(getCellBounds(0, 3));
-
-    // 行 1
+    // 行 1: 閾値・感度 / ホールド / スプリット周波数 / SC LPF
     sliderThreshOrVel->setBounds(getCellBounds(1, 0));
     sliderHold->setBounds(getCellBounds(1, 1));
-    btnTargetChannel.setBounds(getCellBounds(1, 2));
+    sliderSplitFreq->setBounds(getCellBounds(1, 2));
+    sliderScLpf->setBounds(getCellBounds(1, 3));
 
-    // 行 2
-    sliderScHpf->setBounds(getCellBounds(2, 0));
+    // 行 2: カーブ / リリース / ターゲット / ミックス
+    sliderCurve->setBounds(getCellBounds(2, 0));
     sliderRelease->setBounds(getCellBounds(2, 1));
-    sliderCurve->setBounds(getCellBounds(2, 2));
-    sliderScLpf->setBounds(getCellBounds(2, 3));
+    btnTargetChannel.setBounds(getCellBounds(2, 2));
+    sliderMix->setBounds(getCellBounds(2, 3));
 }
