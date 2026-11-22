@@ -115,7 +115,12 @@ void HorizontalBarSlider::setEnabledState(bool shouldBeEnabled)
 
 void HorizontalBarSlider::parameterValueChanged(int, float)
 {
-    juce::MessageManager::callAsync([this]() { repaint(); });
+    juce::Component::SafePointer<HorizontalBarSlider> safeThis(this);
+    juce::MessageManager::callAsync([safeThis]()
+    {
+        if (safeThis != nullptr)
+            safeThis->repaint();
+    });
 }
 
 juce::String HorizontalBarSlider::getFormattedValue() const
@@ -226,27 +231,33 @@ void HorizontalBarSlider::mouseDown(const juce::MouseEvent& e)
         inlineEditor->setText(juce::String(val, 2), false);
         inlineEditor->selectAll();
 
-        inlineEditor->onReturnKey = [this]()
+        juce::Component::SafePointer<HorizontalBarSlider> safeThis(this);
+        auto safeDestroy = [safeThis]()
         {
-            const float parsed = inlineEditor->getText().getFloatValue();
-            param->beginChangeGesture();
-            param->setValueNotifyingHost(param->convertTo0to1(parsed));
-            param->endChangeGesture();
-            inlineEditor.reset();
-            repaint();
+            juce::MessageManager::callAsync([safeThis]()
+            {
+                if (safeThis != nullptr)
+                {
+                    safeThis->inlineEditor.reset();
+                    safeThis->repaint();
+                }
+            });
         };
 
-        inlineEditor->onEscapeKey = [this]()
+        inlineEditor->onReturnKey = [this, safeDestroy]()
         {
-            inlineEditor.reset();
-            repaint();
+            if (inlineEditor != nullptr)
+            {
+                const float parsed = inlineEditor->getText().getFloatValue();
+                param->beginChangeGesture();
+                param->setValueNotifyingHost(param->convertTo0to1(parsed));
+                param->endChangeGesture();
+            }
+            safeDestroy();
         };
 
-        inlineEditor->onFocusLost = [this]()
-        {
-            inlineEditor.reset();
-            repaint();
-        };
+        inlineEditor->onEscapeKey = safeDestroy;
+        inlineEditor->onFocusLost = safeDestroy;
 
         addAndMakeVisible(inlineEditor.get());
         inlineEditor->grabKeyboardFocus();
@@ -369,7 +380,10 @@ void VisualizerComponent::rebuildBackgroundCache()
     }
 
     g.setColour(theme.gridLine());
-    constexpr int numVerticalLines = 8;
+    int numVerticalLines = 4;
+    if (timebaseIdx == 1) numVerticalLines = 8;
+    else if (timebaseIdx == 3 || timebaseIdx == 4) numVerticalLines = 5;
+
     for (int i = 1; i < numVerticalLines; ++i)
     {
         const int x = (w * i) / numVerticalLines;
@@ -419,6 +433,9 @@ void VisualizerComponent::updateFromFifo()
 
         historyIndex = (historyIndex + 1) % maxHistoryPoints;
 
+        if (packet.bpm > 0.0)
+            lastBpm = packet.bpm;
+
         if (packet.prePeak < 0.0001f && !packet.isPlaying)
             silenceFrames++;
         else
@@ -450,7 +467,8 @@ void VisualizerComponent::updateFromFifo()
         peakHoldGrDb = std::min(0.0f, peakHoldGrDb + 0.4f);
     }
 
-    if (silenceFrames > 60)
+    // 約1.0秒相当 (345パケット以上) でフリーズ休止
+    if (silenceFrames > 345)
     {
         isFrozen = true;
         return;
@@ -471,66 +489,109 @@ void VisualizerComponent::paint(juce::Graphics& g)
     if (backgroundCache.isValid())
         g.drawImageAt(backgroundCache, 0, 0);
 
-    const int pointsToShow = juce::jlimit(50, maxHistoryPoints, w);
+    // タイムベースに応じた表示パケット数の算出
+    const double sr = processor.getSampleRate();
+    const double sampleRate = (sr > 0.0) ? sr : 44100.0;
+    const double effectiveBpm = (lastBpm > 0.0) ? lastBpm : 120.0;
 
-    juce::Path prePath;
+    double targetTimeSec = 0.5;
+    if (timebaseIdx == 0)      targetTimeSec = 60.0 / effectiveBpm;       // 1 Beat
+    else if (timebaseIdx == 1) targetTimeSec = 120.0 / effectiveBpm;      // 2 Beats
+    else if (timebaseIdx == 2) targetTimeSec = 240.0 / effectiveBpm;      // 1 Bar (4 Beats)
+    else if (timebaseIdx == 3) targetTimeSec = 0.5;                       // 500 ms
+    else if (timebaseIdx == 4) targetTimeSec = 1.0;                       // 1000 ms
+
+    const int calculatedPoints = static_cast<int>(std::round((targetTimeSec * sampleRate) / 128.0));
+    const int pointsToShow = juce::jlimit(16, maxHistoryPoints, calculatedPoints);
+
+    // 座標計算バッファ
+    struct PointCoord
+    {
+        float x = 0.0f;
+        float yPre = 0.0f;
+        float yPost = 0.0f;
+        float yGr = 0.0f;
+        float grDb = 0.0f;
+    };
+
+    std::vector<PointCoord> coords(pointsToShow);
     juce::Path postPath;
-    juce::Path grPath;
-    juce::Path diffAreaPath;
-
-    bool firstPoint = true;
 
     for (int i = 0; i < pointsToShow; ++i)
     {
         const int idx = (static_cast<int>(historyIndex) - pointsToShow + i + maxHistoryPoints) % maxHistoryPoints;
         const auto& pt = history[idx];
 
-        const float x = (static_cast<float>(i) / static_cast<float>(pointsToShow - 1)) * static_cast<float>(w);
+        coords[i].x = (static_cast<float>(i) / static_cast<float>(pointsToShow - 1)) * static_cast<float>(w);
 
         const float grDb = (pt.minGain > 0.00001f) ? (20.0f * std::log10(pt.minGain)) : -100.0f;
+        coords[i].grDb = grDb;
         const float grNorm = juce::jlimit(0.0f, 1.0f, -grDb / 24.0f);
-        const float grY = grNorm * static_cast<float>(h);
+        coords[i].yGr = grNorm * static_cast<float>(h);
+
+        const float preAmp = juce::jlimit(0.0f, 1.0f, pt.prePeak);
+        coords[i].yPre = static_cast<float>(h) - (preAmp * static_cast<float>(h) * 0.85f);
 
         const float postAmp = juce::jlimit(0.0f, 1.0f, pt.postPeak);
-        const float postY = static_cast<float>(h) - (postAmp * static_cast<float>(h) * 0.85f);
+        coords[i].yPost = static_cast<float>(h) - (postAmp * static_cast<float>(h) * 0.85f);
 
-        if (firstPoint)
+        if (i == 0)
         {
-            grPath.startNewSubPath(x, grY);
-            postPath.startNewSubPath(x, static_cast<float>(h));
-            postPath.lineTo(x, postY);
-
-            diffAreaPath.startNewSubPath(x, 0.0f);
-            diffAreaPath.lineTo(x, grY);
-            firstPoint = false;
+            postPath.startNewSubPath(coords[i].x, static_cast<float>(h));
+            postPath.lineTo(coords[i].x, coords[i].yPost);
         }
         else
         {
-            grPath.lineTo(x, grY);
-            postPath.lineTo(x, postY);
-            diffAreaPath.lineTo(x, grY);
+            postPath.lineTo(coords[i].x, coords[i].yPost);
         }
     }
 
-    if (!firstPoint)
+    // 1. Pre波形とPost波形の間の差分領域（削られた量）をセグメントごとに動的カラーで塗りつぶし
+    for (int i = 0; i < pointsToShow - 1; ++i)
     {
-        diffAreaPath.lineTo(static_cast<float>(w), 0.0f);
-        diffAreaPath.closeSubPath();
+        const auto& p0 = coords[i];
+        const auto& p1 = coords[i + 1];
 
-        const juce::Colour fillColor = getGrColor(peakHoldGrDb).withAlpha(theme.isLight ? 0.40f : 0.35f);
-        g.setColour(fillColor);
-        g.fillPath(diffAreaPath);
+        const float segGrDb = std::min(p0.grDb, p1.grDb);
+
+        // Pre波形がPost波形より上（振幅が大きい＝音が削られている）の場合に差分を描画
+        if (p0.yPre < p0.yPost || p1.yPre < p1.yPost)
+        {
+            juce::Path diffSegment;
+            diffSegment.startNewSubPath(p0.x, p0.yPost);
+            diffSegment.lineTo(p0.x, p0.yPre);
+            diffSegment.lineTo(p1.x, p1.yPre);
+            diffSegment.lineTo(p1.x, p1.yPost);
+            diffSegment.closeSubPath();
+
+            const juce::Colour segColor = getGrColor(segGrDb).withAlpha(theme.isLight ? 0.40f : 0.38f);
+            g.setColour(segColor);
+            g.fillPath(diffSegment);
+        }
     }
 
-    postPath.lineTo(static_cast<float>(w), static_cast<float>(h));
-    postPath.closeSubPath();
-    g.setColour(theme.wavePost().withAlpha(theme.isLight ? 0.35f : 0.25f));
-    g.fillPath(postPath);
-    g.setColour(theme.wavePost());
-    g.strokePath(postPath, juce::PathStrokeType(1.0f));
+    // 2. 残存波形（Post波形）の塗りつぶしと輪郭線
+    if (pointsToShow > 1)
+    {
+        postPath.lineTo(coords[pointsToShow - 1].x, static_cast<float>(h));
+        postPath.closeSubPath();
 
-    g.setColour(getGrColor(peakHoldGrDb));
-    g.strokePath(grPath, juce::PathStrokeType(1.5f));
+        g.setColour(theme.wavePost().withAlpha(theme.isLight ? 0.35f : 0.22f));
+        g.fillPath(postPath);
+        g.setColour(theme.wavePost());
+        g.strokePath(postPath, juce::PathStrokeType(1.0f));
+    }
+
+    // 3. 上端のGR折れ線（時間軸動的カラー、線幅1.5px）
+    for (int i = 0; i < pointsToShow - 1; ++i)
+    {
+        const auto& p0 = coords[i];
+        const auto& p1 = coords[i + 1];
+        const float segGrDb = std::min(p0.grDb, p1.grDb);
+
+        g.setColour(getGrColor(segGrDb));
+        g.drawLine(p0.x, p0.yGr, p1.x, p1.yGr, 1.5f);
+    }
 
     g.setColour(theme.borderDark());
     g.drawRect(getLocalBounds(), 1);
@@ -542,6 +603,8 @@ void VisualizerComponent::paint(juce::Graphics& g)
 SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
     : AudioProcessorEditor(&p), audioProcessor(p), visualizer(p)
 {
+    setLookAndFeel(&lookAndFeel);
+
     auto& apvts = audioProcessor.getAPVTS();
 
     auto setupModeButton = [this](juce::TextButton& btn, int modeValue)
@@ -593,6 +656,7 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
             param->setValueNotifyingHost(param->convertTo0to1(static_cast<float>(comboScDetect.getSelectedId() - 1)));
             param->endChangeGesture();
         }
+        updateModeDependencies();
     };
     addAndMakeVisible(comboScDetect);
 
@@ -787,6 +851,7 @@ void SDDuckAudioProcessorEditor::updateModeDependencies()
 {
     auto& apvts = audioProcessor.getAPVTS();
     const int mode = static_cast<int>(*apvts.getRawParameterValue(SDDuckAudioProcessor::paramMode));
+    const int scDetect = static_cast<int>(*apvts.getRawParameterValue(SDDuckAudioProcessor::paramScDetect));
 
     btnModeSync.setToggleState(mode == 0, juce::dontSendNotification);
     btnModeAudio.setToggleState(mode == 1, juce::dontSendNotification);
@@ -800,6 +865,7 @@ void SDDuckAudioProcessorEditor::updateModeDependencies()
     {
         sliderThreshOrVel->setEnabledState(false);
         sliderThreshOrVel->setCustomLabel("Threshold");
+        sliderHold->setEnabledState(true);
         sliderScHpf->setEnabledState(false);
         sliderScLpf->setEnabledState(false);
     }
@@ -808,6 +874,8 @@ void SDDuckAudioProcessorEditor::updateModeDependencies()
         sliderThreshOrVel->setEnabledState(true);
         sliderThreshOrVel->setCustomLabel("Threshold");
         sliderThreshOrVel->updateParameter(apvts.getParameter(SDDuckAudioProcessor::paramThreshold));
+        // Follow モード時は Hold を無効化、One-Shot のみ有効化
+        sliderHold->setEnabledState(scDetect == 1);
         sliderScHpf->setEnabledState(true);
         sliderScLpf->setEnabledState(true);
     }
@@ -816,6 +884,7 @@ void SDDuckAudioProcessorEditor::updateModeDependencies()
         sliderThreshOrVel->setEnabledState(true);
         sliderThreshOrVel->setCustomLabel("Vel Sens");
         sliderThreshOrVel->updateParameter(apvts.getParameter(SDDuckAudioProcessor::paramMidiVelSens));
+        sliderHold->setEnabledState(true);
         sliderScHpf->setEnabledState(false);
         sliderScLpf->setEnabledState(false);
     }
@@ -824,6 +893,33 @@ void SDDuckAudioProcessorEditor::updateModeDependencies()
 void SDDuckAudioProcessorEditor::timerCallback()
 {
     visualizer.updateFromFifo();
+
+    auto& apvts = audioProcessor.getAPVTS();
+
+    // APVTS と GUI コントロールの同期 (DAW オートメーション・プリセット切替対応)
+    const int apvtsMode = static_cast<int>(*apvts.getRawParameterValue(SDDuckAudioProcessor::paramMode));
+    const bool isModeMismatch = (apvtsMode == 0 && !btnModeSync.getToggleState()) ||
+                                (apvtsMode == 1 && !btnModeAudio.getToggleState()) ||
+                                (apvtsMode == 2 && !btnModeMidi.getToggleState());
+    if (isModeMismatch)
+    {
+        updateModeDependencies();
+    }
+
+    const int apvtsSyncRateId = static_cast<int>(*apvts.getRawParameterValue(SDDuckAudioProcessor::paramSyncRate)) + 1;
+    if (comboSyncRate.getSelectedId() != apvtsSyncRateId)
+        comboSyncRate.setSelectedId(apvtsSyncRateId, juce::dontSendNotification);
+
+    const int apvtsScDetectId = static_cast<int>(*apvts.getRawParameterValue(SDDuckAudioProcessor::paramScDetect)) + 1;
+    if (comboScDetect.getSelectedId() != apvtsScDetectId)
+    {
+        comboScDetect.setSelectedId(apvtsScDetectId, juce::dontSendNotification);
+        updateModeDependencies();
+    }
+
+    const int apvtsMidiNoteId = static_cast<int>(*apvts.getRawParameterValue(SDDuckAudioProcessor::paramMidiNote)) + 1;
+    if (comboMidiNote.getSelectedId() != apvtsMidiNoteId)
+        comboMidiNote.setSelectedId(apvtsMidiNoteId, juce::dontSendNotification);
 
     const float maxGrDb = visualizer.getCurrentMaxGrDb();
     std::ostringstream ss;
@@ -834,8 +930,7 @@ void SDDuckAudioProcessorEditor::timerCallback()
         ss << std::fixed << std::setprecision(1) << maxGrDb << " dB";
     lblMaxGr.setText(ss.str(), juce::dontSendNotification);
 
-    auto& apvts = audioProcessor.getAPVTS();
-    const int mode = static_cast<int>(*apvts.getRawParameterValue(SDDuckAudioProcessor::paramMode));
+    const int mode = apvtsMode;
     const bool scListen = *apvts.getRawParameterValue(SDDuckAudioProcessor::paramScListen) > 0.5f;
     btnScListen.setToggleState(scListen, juce::dontSendNotification);
 

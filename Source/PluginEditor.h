@@ -34,9 +34,27 @@ struct ThemeColors
 class SDDuckLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
-    SDDuckLookAndFeel(const ThemeColors& t) : theme(t) {}
+    SDDuckLookAndFeel(const ThemeColors& t) : theme(t)
+    {
+        applyThemeColours();
+    }
 
-    void setTheme(const ThemeColors& t) { theme = t; }
+    void setTheme(const ThemeColors& t)
+    {
+        theme = t;
+        applyThemeColours();
+    }
+
+    void applyThemeColours()
+    {
+        setColour(juce::ComboBox::backgroundColourId, theme.bgControl());
+        setColour(juce::ComboBox::textColourId, theme.textPrimary());
+        setColour(juce::ComboBox::outlineColourId, theme.borderDark());
+        setColour(juce::PopupMenu::backgroundColourId, theme.bgControl());
+        setColour(juce::PopupMenu::textColourId, theme.textPrimary());
+        setColour(juce::PopupMenu::highlightedBackgroundColourId, theme.accentTeal());
+        setColour(juce::PopupMenu::highlightedTextColourId, theme.textPrimary());
+    }
 
     void drawButtonBackground(juce::Graphics& g, juce::Button& button,
                               const juce::Colour& backgroundColour,
@@ -150,6 +168,7 @@ private:
 
     int silenceFrames = 0;
     bool isFrozen = false;
+    double lastBpm = 120.0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(VisualizerComponent)
 };

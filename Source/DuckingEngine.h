@@ -49,11 +49,14 @@ public:
         scLpf.reset();
         currentGain = 1.0f;
         targetGain = 1.0f;
+        triggerStartGain = 1.0f;
         oneShotTimeSec = 100.0; // 終了状態
         envelopeFollower = 0.0f;
         lastTriggerTimeSec = -1.0;
         isArmReady = true;
         activeDepth = 0.8f;
+        lastHpf = -1.0f;
+        lastLpf = -1.0f;
     }
 
     static float applyCurve(float x, float curve) noexcept
@@ -76,7 +79,7 @@ public:
         }
     }
 
-    // SC HPF / LPF フィルタ係数更新
+    // SC HPF / LPF フィルタ係数更新 (キャッシュによる毎ブロックのヒープ確保排除)
     void updateSidechainFilters(float hpfHz, float lpfHz)
     {
         if (currentSampleRate <= 0.0)
@@ -87,11 +90,16 @@ public:
         const float safeLpf = juce::jlimit(safeHpf + 10.0f, 20000.0f, std::max(lpfHz, safeHpf + 10.0f));
 
         constexpr float qVal = 0.70710678f;
-        auto hpfCoeffs = juce::dsp::IIR::Coefficients<float>::makeHighPass(currentSampleRate, safeHpf, qVal);
-        auto lpfCoeffs = juce::dsp::IIR::Coefficients<float>::makeLowPass(currentSampleRate, safeLpf, qVal);
-
-        *scHpf.state = *hpfCoeffs;
-        *scLpf.state = *lpfCoeffs;
+        if (std::abs(safeHpf - lastHpf) > 0.1f)
+        {
+            lastHpf = safeHpf;
+            *scHpf.state = *juce::dsp::IIR::Coefficients<float>::makeHighPass(currentSampleRate, safeHpf, qVal);
+        }
+        if (std::abs(safeLpf - lastLpf) > 0.1f)
+        {
+            lastLpf = safeLpf;
+            *scLpf.state = *juce::dsp::IIR::Coefficients<float>::makeLowPass(currentSampleRate, safeLpf, qVal);
+        }
     }
 
     // サイドチェイン入力のフィルタリング
@@ -104,10 +112,11 @@ public:
         scLpf.process(context);
     }
 
-    // ワンショットのトリガー開始
+    // ワンショットのトリガー開始 (現在ゲインを記録して音量跳ね上がりを防止)
     void triggerOneShot(float customDepth = -1.0f)
     {
         oneShotTimeSec = 0.0;
+        triggerStartGain = currentGain;
         if (customDepth >= 0.0f)
             activeDepth = customDepth;
     }
@@ -152,7 +161,7 @@ public:
                 const double t = phase * cycleDurationSec;
 
                 activeDepth = depth;
-                targetGain = evaluateEnvelope(static_cast<float>(t), attackSec, holdSec, releaseSec, curve, activeDepth);
+                targetGain = evaluateEnvelope(static_cast<float>(t), attackSec, holdSec, releaseSec, curve, activeDepth, 1.0f);
             }
         }
         else if (mode == TriggerMode::Audio)
@@ -175,7 +184,7 @@ public:
                     triggerOneShot(depth);
                 }
 
-                targetGain = evaluateEnvelope(static_cast<float>(oneShotTimeSec), attackSec, holdSec, releaseSec, curve, activeDepth);
+                targetGain = evaluateEnvelope(static_cast<float>(oneShotTimeSec), attackSec, holdSec, releaseSec, curve, activeDepth, triggerStartGain);
                 oneShotTimeSec += samplePeriod;
             }
             else // Follow モード
@@ -203,7 +212,7 @@ public:
         }
         else if (mode == TriggerMode::MIDI)
         {
-            targetGain = evaluateEnvelope(static_cast<float>(oneShotTimeSec), attackSec, holdSec, releaseSec, curve, activeDepth);
+            targetGain = evaluateEnvelope(static_cast<float>(oneShotTimeSec), attackSec, holdSec, releaseSec, curve, activeDepth, triggerStartGain);
             oneShotTimeSec += samplePeriod;
         }
 
@@ -214,22 +223,26 @@ public:
     }
 
 private:
-    static float evaluateEnvelope(float t, float attackSec, float holdSec, float releaseSec, float curve, float depth) noexcept
+    static float evaluateEnvelope(float t, float attackSec, float holdSec, float releaseSec, float curve, float depth, float startGain = 1.0f) noexcept
     {
-        if (t < attackSec)
+        const float targetMin = 1.0f - depth;
+        if (t < attackSec && attackSec > 1e-6f)
         {
             const float progress = t / attackSec;
-            return 1.0f - (depth * progress);
+            if (startGain > targetMin)
+                return startGain - (startGain - targetMin) * progress;
+            else
+                return targetMin;
         }
         else if (t < (attackSec + holdSec))
         {
-            return 1.0f - depth;
+            return targetMin;
         }
-        else if (t < (attackSec + holdSec + releaseSec))
+        else if (t < (attackSec + holdSec + releaseSec) && releaseSec > 1e-6f)
         {
             const float relProgress = (t - (attackSec + holdSec)) / releaseSec;
             const float curvedProgress = applyCurve(relProgress, curve);
-            return (1.0f - depth) + (depth * curvedProgress);
+            return targetMin + (depth * curvedProgress);
         }
         else
         {
@@ -243,12 +256,16 @@ private:
 
     float currentGain = 1.0f;
     float targetGain = 1.0f;
+    float triggerStartGain = 1.0f;
     float activeDepth = 0.8f;
 
     double oneShotTimeSec = 100.0;
     double lastTriggerTimeSec = -1.0;
     bool isArmReady = true;
     float envelopeFollower = 0.0f;
+
+    float lastHpf = -1.0f;
+    float lastLpf = -1.0f;
 
     juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> scHpf;
     juce::dsp::ProcessorDuplicator<juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> scLpf;

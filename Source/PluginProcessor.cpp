@@ -266,11 +266,53 @@ void SDDuckAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     duckingEngine.updateSidechainFilters(scHpf, scLpf);
     duckingEngine.filterSidechainBuffer(filteredScBuffer, numSamples);
 
-    // SC Listen モード: サイドチェイン音声をメイン出力へスルー出力
+    // SC Listen モード: サイドチェイン音声をメイン出力へスルー出力しつつステータス・ビジュアライザを更新
     if (scListen)
     {
         buffer.copyFrom(0, 0, filteredScBuffer, 0, 0, numSamples);
         buffer.copyFrom(1, 0, filteredScBuffer, 1, 0, numSamples);
+
+        const float* scL = filteredScBuffer.getReadPointer(0);
+        const float* scR = filteredScBuffer.getReadPointer(1);
+
+        for (int sample = 0; sample < numSamples; ++sample)
+        {
+            const float scAmp = std::max(std::abs(scL[sample]), std::abs(scR[sample]));
+            const double samplePpq = ppqPosition + static_cast<double>(sample) * ppqAdvancePerSample;
+
+            currentPacketPrePeak = std::max(currentPacketPrePeak, scAmp);
+            currentPacketPostPeak = std::max(currentPacketPostPeak, scAmp);
+            currentPacketMinGain = 1.0f;
+            currentPacketScPeak = std::max(currentPacketScPeak, scAmp);
+
+            sampleAccumulator++;
+            if (sampleAccumulator >= 128)
+            {
+                VisualPacket packet;
+                packet.prePeak = currentPacketPrePeak;
+                packet.postPeak = currentPacketPostPeak;
+                packet.minGain = 1.0f;
+
+                const float scDb = (currentPacketScPeak > 1e-5f) ? (20.0f * std::log10(currentPacketScPeak)) : -100.0f;
+                const bool scActive = (currentPacketScPeak > 0.00003f); // 約 -90dB
+                packet.scPeakDb = scDb;
+                packet.isSidechainActive = scActive;
+                packet.ppqPosition = samplePpq;
+                packet.bpm = bpm;
+                packet.isPlaying = isPlaying;
+
+                lastScPeakDb.store(scDb, std::memory_order_relaxed);
+                lastScActive.store(scActive, std::memory_order_relaxed);
+
+                visualFifo.push(packet);
+
+                sampleAccumulator = 0;
+                currentPacketPrePeak = 0.0f;
+                currentPacketPostPeak = 0.0f;
+                currentPacketMinGain = 1.0f;
+                currentPacketScPeak = 0.0f;
+            }
+        }
         return;
     }
 
