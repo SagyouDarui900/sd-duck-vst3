@@ -723,7 +723,11 @@ void SDDuckAudioProcessorEditor::timerCallback()
     visualizer.updateFromFifo();
 
     // Max GR 表示更新
-    // visualizer から取得またはFIFOパケット最新から
+    const float maxGrDb = visualizer.getCurrentMaxGrDb();
+    std::ostringstream ss;
+    ss << "Max GR: " << std::fixed << std::setprecision(1) << maxGrDb << " dB";
+    lblMaxGr.setText(ss.str(), juce::dontSendNotification);
+
     // SC 入力ステータス更新
     auto& apvts = audioProcessor.getAPVTS();
     const int mode = static_cast<int>(*apvts.getRawParameterValue(SDDuckAudioProcessor::paramMode));
@@ -733,16 +737,30 @@ void SDDuckAudioProcessorEditor::timerCallback()
     // SCステータス表示
     if (mode == 1) // Audioモード
     {
-        // 信号の有無判定
-        // 通常時は ACTIVE、無音なら警告
-        lblScStatus.setText("SC: ACTIVE", juce::dontSendNotification);
-        lblScStatus.setColour(juce::Label::textColourId, UIColors::Accent_Teal);
+        const bool scActive = audioProcessor.getIsSidechainActive();
+        const float scPeak = audioProcessor.getLastSidechainPeakDb();
+        if (scActive)
+        {
+            std::ostringstream scSs;
+            scSs << "SC: ACTIVE (" << std::fixed << std::setprecision(1) << scPeak << "dB)";
+            lblScStatus.setText(scSs.str(), juce::dontSendNotification);
+            lblScStatus.setColour(juce::Label::textColourId, UIColors::Accent_Teal);
+        }
+        else
+        {
+            lblScStatus.setText("SC: NO SIGNAL", juce::dontSendNotification);
+            lblScStatus.setColour(juce::Label::textColourId, UIColors::Status_Warn);
+        }
     }
     else
     {
         lblScStatus.setText("SC: READY", juce::dontSendNotification);
         lblScStatus.setColour(juce::Label::textColourId, UIColors::Text_Secondary);
     }
+
+    // Target Channel ボタンの同期
+    const int currentTarget = static_cast<int>(*apvts.getRawParameterValue(SDDuckAudioProcessor::paramChannelMode));
+    btnTargetChannel.setButtonText(currentTarget == 0 ? "Target: Stereo" : "Target: Mid Only");
 }
 
 void SDDuckAudioProcessorEditor::paint(juce::Graphics& g)

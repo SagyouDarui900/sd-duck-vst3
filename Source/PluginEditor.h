@@ -81,6 +81,7 @@ public:
 
     void updateFromFifo();
     void setTimebaseIndex(int index);
+    float getCurrentMaxGrDb() const noexcept { return currentMaxGrDb; }
 
 private:
     void rebuildBackgroundCache();

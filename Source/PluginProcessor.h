@@ -102,6 +102,9 @@ public:
     juce::AudioProcessorValueTreeState& getAPVTS() noexcept { return apvts; }
     LockFreeFifo<VisualPacket, 2048>& getVisualFifo() noexcept { return visualFifo; }
 
+    float getLastSidechainPeakDb() const noexcept { return lastScPeakDb.load(std::memory_order_relaxed); }
+    bool getIsSidechainActive() const noexcept { return lastScActive.load(std::memory_order_relaxed); }
+
     // パラメータID定数
     static const juce::String paramMode;
     static const juce::String paramSyncRate;
@@ -132,6 +135,8 @@ private:
 
     // パケット集計用
     LockFreeFifo<VisualPacket, 2048> visualFifo;
+    std::atomic<float> lastScPeakDb { -100.0f };
+    std::atomic<bool> lastScActive { false };
     int sampleAccumulator = 0;
     float currentPacketPrePeak = 0.0f;
     float currentPacketPostPeak = 0.0f;

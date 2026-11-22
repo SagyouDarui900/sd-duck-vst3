@@ -26,6 +26,11 @@ public:
     void prepare(double sampleRate, int samplesPerBlock)
     {
         currentSampleRate = sampleRate;
+        samplePeriod = static_cast<float>(1.0 / (currentSampleRate > 0.0 ? currentSampleRate : 44100.0));
+
+        // 時定数 tau = 1.0ms のワンポールローパススムージングフィルタ係数を事前計算
+        constexpr float tau = 0.001f; // 1.0 ms
+        smoothAlpha = std::exp(-samplePeriod / tau);
 
         juce::dsp::ProcessSpec spec;
         spec.sampleRate = sampleRate;
@@ -107,35 +112,30 @@ public:
             activeDepth = customDepth;
     }
 
-    // サンプル単位のゲイン計算
-    // ppqPos: 現在の拍位置
-    // bpm: テンポ
-    // rateBeats: 1/4なら1.0, 1/8なら0.5など
-    // isPlaying: 再生中か
+    // サンプル単位のゲイン計算（高効率・インライン化）
     float processSample(TriggerMode mode,
                         DetectType detectType,
                         float depth,
-                        float attackMs,
-                        float holdMs,
-                        float releaseMs,
+                        float attackSec,
+                        float holdSec,
+                        float releaseSec,
                         float curve,
                         float scSample,
+                        float thresholdLinear,
+                        float hysteresisLinear,
                         float thresholdDb,
+                        float attCoeff,
+                        float relCoeff,
                         double ppqPos,
                         double bpm,
                         double rateBeats,
                         bool isPlaying)
     {
-        const float attackSec = std::max(0.0001f, attackMs * 0.001f);
-        const float holdSec = std::max(0.0f, holdMs * 0.001f);
-        const float releaseSec = std::max(0.001f, releaseMs * 0.001f);
-        const float samplePeriod = static_cast<float>(1.0 / (currentSampleRate > 0.0 ? currentSampleRate : 44100.0));
-
         if (mode == TriggerMode::Sync)
         {
             if (!isPlaying || bpm <= 0.0)
             {
-                // 再生停止時は目標ゲインを1.0にセット
+                // 再生停止時は目標ゲインを1.0にセットし、スムージング経由で約3〜5msで収束
                 targetGain = 1.0f;
             }
             else
@@ -158,21 +158,18 @@ public:
         else if (mode == TriggerMode::Audio)
         {
             const float absVal = std::abs(scSample);
-            // レベルをdB換算
-            const float scDb = (absVal > 1e-5f) ? (20.0f * std::log10(absVal)) : -100.0f;
 
             if (detectType == DetectType::OneShot)
             {
-                // ヒステリシス (-3 dB) と不応期 (30 ms)
-                constexpr float hysteresisDb = 3.0f;
+                // ヒステリシス (-3 dB) と不応期 (30 ms) をリニア値で高速判定
                 constexpr double refractoryPeriodSec = 0.030; // 30ms
 
-                if (oneShotTimeSec >= refractoryPeriodSec && scDb < (thresholdDb - hysteresisDb))
+                if (oneShotTimeSec >= refractoryPeriodSec && absVal < hysteresisLinear)
                 {
                     isArmReady = true;
                 }
 
-                if (isArmReady && scDb >= thresholdDb)
+                if (isArmReady && absVal >= thresholdLinear)
                 {
                     isArmReady = false;
                     triggerOneShot(depth);
@@ -183,26 +180,20 @@ public:
             }
             else // Follow モード
             {
-                // エンベロープフォロワー
-                const float attCoeff = std::exp(-samplePeriod / attackSec);
-                const float relCoeff = std::exp(-samplePeriod / releaseSec);
-
+                // 事前計算済みの係数による高速エンベロープフォロワー
                 if (absVal > envelopeFollower)
                     envelopeFollower = absVal + attCoeff * (envelopeFollower - absVal);
                 else
                     envelopeFollower = absVal + relCoeff * (envelopeFollower - absVal);
 
-                const float envDb = (envelopeFollower > 1e-5f) ? (20.0f * std::log10(envelopeFollower)) : -100.0f;
-
-                if (envDb <= thresholdDb)
+                if (envelopeFollower <= thresholdLinear)
                 {
                     targetGain = 1.0f;
                 }
                 else
                 {
-                    // 閾値を超えた量に応じたゲインリダクション
+                    const float envDb = (envelopeFollower > 1e-5f) ? (20.0f * std::log10(envelopeFollower)) : -100.0f;
                     const float overDb = envDb - thresholdDb;
-                    // 最大24dB超過で指定Depthに到達
                     const float ratio = juce::jlimit(0.0f, 1.0f, overDb / 24.0f);
                     targetGain = 1.0f - (depth * ratio);
                 }
@@ -210,15 +201,11 @@ public:
         }
         else if (mode == TriggerMode::MIDI)
         {
-            // MIDIモードは processBlock でのノートオン時に triggerOneShot が呼ばれる
             targetGain = evaluateEnvelope(static_cast<float>(oneShotTimeSec), attackSec, holdSec, releaseSec, curve, activeDepth);
             oneShotTimeSec += samplePeriod;
         }
 
-        // 時定数 tau = 1.0ms のワンポールローパススムージングフィルタ
-        // alpha = exp(-dt / tau)
-        constexpr float tau = 0.001f; // 1.0 ms
-        const float smoothAlpha = std::exp(-samplePeriod / tau);
+        // 事前計算済み smoothAlpha による高速ワンポールスムージング (1.0ms)
         currentGain = targetGain + smoothAlpha * (currentGain - targetGain);
 
         return currentGain;
@@ -229,30 +216,29 @@ private:
     {
         if (t < attackSec)
         {
-            // アタック: 1.0 -> (1.0 - depth)
             const float progress = t / attackSec;
             return 1.0f - (depth * progress);
         }
         else if (t < (attackSec + holdSec))
         {
-            // ホールド: (1.0 - depth)
             return 1.0f - depth;
         }
         else if (t < (attackSec + holdSec + releaseSec))
         {
-            // リリース: (1.0 - depth) -> 1.0
             const float relProgress = (t - (attackSec + holdSec)) / releaseSec;
             const float curvedProgress = applyCurve(relProgress, curve);
             return (1.0f - depth) + (depth * curvedProgress);
         }
         else
         {
-            // 終了: 1.0
             return 1.0f;
         }
     }
 
     double currentSampleRate = 44100.0;
+    float samplePeriod = 1.0f / 44100.0f;
+    float smoothAlpha = 0.867f;
+
     float currentGain = 1.0f;
     float targetGain = 1.0f;
     float activeDepth = 0.8f;

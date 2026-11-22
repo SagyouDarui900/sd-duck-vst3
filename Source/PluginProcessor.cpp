@@ -239,6 +239,16 @@ void SDDuckAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     }
 
     const double rateMultiplier = getRateMultiplier(syncRateIdx);
+    const double sr = getSampleRate();
+    const float samplePeriod = static_cast<float>(1.0 / (sr > 0.0 ? sr : 44100.0));
+    const float attackSec = std::max(0.0001f, attackMs * 0.001f);
+    const float holdSec = std::max(0.0f, holdMs * 0.001f);
+    const float releaseSec = std::max(0.001f, releaseMs * 0.001f);
+    const float thresholdLinear = std::pow(10.0f, thresholdDb / 20.0f);
+    const float hysteresisLinear = std::pow(10.0f, (thresholdDb - 3.0f) / 20.0f);
+    const float attCoeff = std::exp(-samplePeriod / attackSec);
+    const float relCoeff = std::exp(-samplePeriod / releaseSec);
+    const double ppqAdvancePerSample = (sr > 0.0) ? ((bpm / 60.0) / sr) : 0.0;
 
     // サイドチェイン入力の準備 (ch 2, 3)
     filteredScBuffer.setSize(2, numSamples, false, false, true);
@@ -317,13 +327,14 @@ void SDDuckAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
         const float scSample = std::max(std::abs(scSampleL), std::abs(scSampleR));
 
         // テンポ同期のサンプル毎PPQ進捗計算
-        const double samplePpq = ppqPosition + (static_cast<double>(sample) / getSampleRate()) * (bpm / 60.0);
+        const double samplePpq = ppqPosition + static_cast<double>(sample) * ppqAdvancePerSample;
 
-        // ゲイン係数算出
+        // ゲイン係数算出（事前計算済みの係数による高速処理）
         const float gain = duckingEngine.processSample(
             mode, scDetect, depthNormalized,
-            attackMs, holdMs, releaseMs, curve,
-            scSample, thresholdDb,
+            attackSec, holdSec, releaseSec, curve,
+            scSample, thresholdLinear, hysteresisLinear, thresholdDb,
+            attCoeff, relCoeff,
             samplePpq, bpm, rateMultiplier, isPlaying);
 
         // Pre波形ピーク（処理前DryのL/R絶対値）
@@ -344,26 +355,32 @@ void SDDuckAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
             rightChannel[sample] *= gain;
         }
 
+        const float postAmp = std::max(std::abs(leftChannel[sample]), std::abs(rightChannel[sample]));
+
         // パケット用集計
         currentPacketPrePeak = std::max(currentPacketPrePeak, preAmp);
+        currentPacketPostPeak = std::max(currentPacketPostPeak, postAmp);
         currentPacketMinGain = std::min(currentPacketMinGain, gain);
         currentPacketScPeak = std::max(currentPacketScPeak, scSample);
 
         sampleAccumulator++;
         if (sampleAccumulator >= 128)
         {
-            // 処理後Post波形ピーク集計
-            currentPacketPostPeak = std::max(std::abs(leftChannel[sample]), std::abs(rightChannel[sample]));
-
             VisualPacket packet;
             packet.prePeak = currentPacketPrePeak;
             packet.postPeak = currentPacketPostPeak;
             packet.minGain = currentPacketMinGain;
-            packet.scPeakDb = (currentPacketScPeak > 1e-5f) ? (20.0f * std::log10(currentPacketScPeak)) : -100.0f;
-            packet.isSidechainActive = (currentPacketScPeak > 0.00003f); // 約 -90dB
+
+            const float scDb = (currentPacketScPeak > 1e-5f) ? (20.0f * std::log10(currentPacketScPeak)) : -100.0f;
+            const bool scActive = (currentPacketScPeak > 0.00003f); // 約 -90dB
+            packet.scPeakDb = scDb;
+            packet.isSidechainActive = scActive;
             packet.ppqPosition = samplePpq;
             packet.bpm = bpm;
             packet.isPlaying = isPlaying;
+
+            lastScPeakDb.store(scDb, std::memory_order_relaxed);
+            lastScActive.store(scActive, std::memory_order_relaxed);
 
             visualFifo.push(packet);
 
