@@ -166,6 +166,17 @@ private:
     int peakHoldFrames = 0;
     int timebaseIdx = 0; // 0: 1 Beat, 1: 2 Beats, 2: 1 Bar, 3: 500 ms, 4: 1000 ms
 
+    // 描画座標キャッシュ (ヒープ確保排除)
+    struct PointCoord
+    {
+        float x = 0.0f;
+        float yPre = 0.0f;
+        float yPost = 0.0f;
+        float yGr = 0.0f;
+        float grDb = 0.0f;
+    };
+    std::vector<PointCoord> coordsCache;
+
     int silenceFrames = 0;
     bool isFrozen = false;
     double lastBpm = 120.0;

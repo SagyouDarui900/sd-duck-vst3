@@ -339,6 +339,7 @@ VisualizerComponent::VisualizerComponent(SDDuckAudioProcessor& p)
     : processor(p)
 {
     history.resize(maxHistoryPoints);
+    coordsCache.resize(static_cast<size_t>(maxHistoryPoints));
 }
 
 void VisualizerComponent::setTimebaseIndex(int index)
@@ -504,17 +505,6 @@ void VisualizerComponent::paint(juce::Graphics& g)
     const int calculatedPoints = static_cast<int>(std::round((targetTimeSec * sampleRate) / 128.0));
     const int pointsToShow = juce::jlimit(16, maxHistoryPoints, calculatedPoints);
 
-    // 座標計算バッファ
-    struct PointCoord
-    {
-        float x = 0.0f;
-        float yPre = 0.0f;
-        float yPost = 0.0f;
-        float yGr = 0.0f;
-        float grDb = 0.0f;
-    };
-
-    std::vector<PointCoord> coords(pointsToShow);
     juce::Path postPath;
 
     for (int i = 0; i < pointsToShow; ++i)
@@ -522,46 +512,50 @@ void VisualizerComponent::paint(juce::Graphics& g)
         const int idx = (static_cast<int>(historyIndex) - pointsToShow + i + maxHistoryPoints) % maxHistoryPoints;
         const auto& pt = history[idx];
 
-        coords[i].x = (static_cast<float>(i) / static_cast<float>(pointsToShow - 1)) * static_cast<float>(w);
+        coordsCache[i].x = (static_cast<float>(i) / static_cast<float>(pointsToShow - 1)) * static_cast<float>(w);
 
         const float grDb = (pt.minGain > 0.00001f) ? (20.0f * std::log10(pt.minGain)) : -100.0f;
-        coords[i].grDb = grDb;
+        coordsCache[i].grDb = grDb;
         const float grNorm = juce::jlimit(0.0f, 1.0f, -grDb / 24.0f);
-        coords[i].yGr = grNorm * static_cast<float>(h);
+        coordsCache[i].yGr = grNorm * static_cast<float>(h);
 
         const float preAmp = juce::jlimit(0.0f, 1.0f, pt.prePeak);
-        coords[i].yPre = static_cast<float>(h) - (preAmp * static_cast<float>(h) * 0.85f);
+        coordsCache[i].yPre = static_cast<float>(h) - (preAmp * static_cast<float>(h) * 0.85f);
 
         const float postAmp = juce::jlimit(0.0f, 1.0f, pt.postPeak);
-        coords[i].yPost = static_cast<float>(h) - (postAmp * static_cast<float>(h) * 0.85f);
+        coordsCache[i].yPost = static_cast<float>(h) - (postAmp * static_cast<float>(h) * 0.85f);
 
         if (i == 0)
         {
-            postPath.startNewSubPath(coords[i].x, static_cast<float>(h));
-            postPath.lineTo(coords[i].x, coords[i].yPost);
+            postPath.startNewSubPath(coordsCache[i].x, static_cast<float>(h));
+            postPath.lineTo(coordsCache[i].x, coordsCache[i].yPost);
         }
         else
         {
-            postPath.lineTo(coords[i].x, coords[i].yPost);
+            postPath.lineTo(coordsCache[i].x, coordsCache[i].yPost);
         }
     }
 
     // 1. Pre波形とPost波形の間の差分領域（削られた量）をセグメントごとに動的カラーで塗りつぶし
     for (int i = 0; i < pointsToShow - 1; ++i)
     {
-        const auto& p0 = coords[i];
-        const auto& p1 = coords[i + 1];
+        const auto& p0 = coordsCache[i];
+        const auto& p1 = coordsCache[i + 1];
 
         const float segGrDb = std::min(p0.grDb, p1.grDb);
 
         // Pre波形がPost波形より上（振幅が大きい＝音が削られている）の場合に差分を描画
         if (p0.yPre < p0.yPost || p1.yPre < p1.yPost)
         {
+            // ポリゴンのねじれ（Post座標がPre座標を上回る逆転）を防止
+            const float y0Post = std::max(p0.yPre, p0.yPost);
+            const float y1Post = std::max(p1.yPre, p1.yPost);
+
             juce::Path diffSegment;
-            diffSegment.startNewSubPath(p0.x, p0.yPost);
+            diffSegment.startNewSubPath(p0.x, y0Post);
             diffSegment.lineTo(p0.x, p0.yPre);
             diffSegment.lineTo(p1.x, p1.yPre);
-            diffSegment.lineTo(p1.x, p1.yPost);
+            diffSegment.lineTo(p1.x, y1Post);
             diffSegment.closeSubPath();
 
             const juce::Colour segColor = getGrColor(segGrDb).withAlpha(theme.isLight ? 0.40f : 0.38f);
@@ -573,7 +567,7 @@ void VisualizerComponent::paint(juce::Graphics& g)
     // 2. 残存波形（Post波形）の塗りつぶしと輪郭線
     if (pointsToShow > 1)
     {
-        postPath.lineTo(coords[pointsToShow - 1].x, static_cast<float>(h));
+        postPath.lineTo(coordsCache[pointsToShow - 1].x, static_cast<float>(h));
         postPath.closeSubPath();
 
         g.setColour(theme.wavePost().withAlpha(theme.isLight ? 0.35f : 0.22f));
@@ -585,8 +579,8 @@ void VisualizerComponent::paint(juce::Graphics& g)
     // 3. 上端のGR折れ線（時間軸動的カラー、線幅1.5px）
     for (int i = 0; i < pointsToShow - 1; ++i)
     {
-        const auto& p0 = coords[i];
-        const auto& p1 = coords[i + 1];
+        const auto& p0 = coordsCache[i];
+        const auto& p1 = coordsCache[i + 1];
         const float segGrDb = std::min(p0.grDb, p1.grDb);
 
         g.setColour(getGrColor(segGrDb));
@@ -603,6 +597,7 @@ void VisualizerComponent::paint(juce::Graphics& g)
 SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
     : AudioProcessorEditor(&p), audioProcessor(p), visualizer(p)
 {
+    audioProcessor.getVisualFifo().reset();
     setLookAndFeel(&lookAndFeel);
 
     auto& apvts = audioProcessor.getAPVTS();
@@ -779,8 +774,6 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
     updateModeDependencies();
     applyTheme();
 
-    setLookAndFeel(&lookAndFeel);
-
     setSize(680, 390);
     setResizable(true, true);
     setResizeLimits(550, 340, 1920, 1080);
@@ -797,6 +790,11 @@ SDDuckAudioProcessorEditor::~SDDuckAudioProcessorEditor()
 void SDDuckAudioProcessorEditor::applyTheme()
 {
     lookAndFeel.setTheme(currentTheme);
+
+    comboSyncRate.sendLookAndFeelChange();
+    comboScDetect.sendLookAndFeelChange();
+    comboMidiNote.sendLookAndFeelChange();
+    comboTimebase.sendLookAndFeelChange();
 
     // 各コンポーネントへテーマ色を伝達
     visualizer.setTheme(currentTheme);

@@ -172,6 +172,9 @@ void SDDuckAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     dryBuffer.setSize(2, samplesPerBlock);
     filteredScBuffer.setSize(2, samplesPerBlock);
 
+    sampleGains.resize(static_cast<size_t>(samplesPerBlock));
+    sampleScAmps.resize(static_cast<size_t>(samplesPerBlock));
+
     visualFifo.reset();
     sampleAccumulator = 0;
     currentPacketPrePeak = 0.0f;
@@ -342,7 +345,13 @@ void SDDuckAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
     // MIDI イテレータ
     auto midiIt = midiMessages.begin();
 
-    // サンプル単位の処理ループ
+    if (sampleGains.size() < static_cast<size_t>(numSamples))
+    {
+        sampleGains.resize(static_cast<size_t>(numSamples));
+        sampleScAmps.resize(static_cast<size_t>(numSamples));
+    }
+
+    // サンプル単位のダッキング処理ループ
     for (int sample = 0; sample < numSamples; ++sample)
     {
         // 現在サンプル位置でのMIDIノートオン確認
@@ -379,8 +388,8 @@ void SDDuckAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
             attCoeff, relCoeff,
             samplePpq, bpm, rateMultiplier, isPlaying);
 
-        // Pre波形ピーク（処理前DryのL/R絶対値）
-        const float preAmp = std::max(std::abs(dryLeft[sample]), std::abs(dryRight[sample]));
+        sampleGains[sample] = gain;
+        sampleScAmps[sample] = scSample;
 
         // ゲイン適用 (Stereo / Mid-Only)
         if (channelMode == 1) // Mid Only
@@ -396,10 +405,42 @@ void SDDuckAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
             leftChannel[sample] *= gain;
             rightChannel[sample] *= gain;
         }
+    }
 
-        const float postAmp = std::max(std::abs(leftChannel[sample]), std::abs(rightChannel[sample]));
+    // Split-Band 再合成
+    if (splitEnabled)
+    {
+        crossoverFilter.combine(buffer, numSamples);
+    }
 
-        // パケット用集計
+    // Dry / Wet ミックス
+    if (mix < 0.999f)
+    {
+        const float wetGain = mix;
+        const float dryGain = 1.0f - mix;
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            auto* out = buffer.getWritePointer(ch);
+            const auto* dry = dryBuffer.getReadPointer(ch);
+            for (int s = 0; s < numSamples; ++s)
+            {
+                out[s] = dryGain * dry[s] + wetGain * out[s];
+            }
+        }
+    }
+
+    // 最終出力 (Post) および未処理原音 (Pre) からのビジュアライザ用パケット集計
+    const float* finalOutL = buffer.getReadPointer(0);
+    const float* finalOutR = (totalNumInputChannels >= 2) ? buffer.getReadPointer(1) : finalOutL;
+
+    for (int sample = 0; sample < numSamples; ++sample)
+    {
+        const float preAmp = std::max(std::abs(dryLeft[sample]), std::abs(dryRight[sample]));
+        const float postAmp = std::max(std::abs(finalOutL[sample]), std::abs(finalOutR[sample]));
+        const float gain = sampleGains[sample];
+        const float scSample = sampleScAmps[sample];
+        const double samplePpq = ppqPosition + static_cast<double>(sample) * ppqAdvancePerSample;
+
         currentPacketPrePeak = std::max(currentPacketPrePeak, preAmp);
         currentPacketPostPeak = std::max(currentPacketPostPeak, postAmp);
         currentPacketMinGain = std::min(currentPacketMinGain, gain);
@@ -432,28 +473,6 @@ void SDDuckAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
             currentPacketPostPeak = 0.0f;
             currentPacketMinGain = 1.0f;
             currentPacketScPeak = 0.0f;
-        }
-    }
-
-    // Split-Band 再合成
-    if (splitEnabled)
-    {
-        crossoverFilter.combine(buffer, numSamples);
-    }
-
-    // Dry / Wet ミックス
-    if (mix < 0.999f)
-    {
-        const float wetGain = mix;
-        const float dryGain = 1.0f - mix;
-        for (int ch = 0; ch < 2; ++ch)
-        {
-            auto* out = buffer.getWritePointer(ch);
-            const auto* dry = dryBuffer.getReadPointer(ch);
-            for (int s = 0; s < numSamples; ++s)
-            {
-                out[s] = dryGain * dry[s] + wetGain * out[s];
-            }
         }
     }
 }

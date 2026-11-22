@@ -30,13 +30,11 @@ public:
     void push(const T& item) noexcept
     {
         const size_t currentWrite = writeIndex.load(std::memory_order_relaxed);
-        const size_t currentRead = readIndex.load(std::memory_order_relaxed);
+        const size_t currentRead = readIndex.load(std::memory_order_acquire);
 
-        // バッファ満杯時のドロップ挙動: 最も古いパケットを1つ破棄
+        // バッファ満杯時は SPSC 安全のため readIndex を変更せずパケットをドロップ
         if (currentWrite - currentRead >= Capacity)
-        {
-            readIndex.store(currentRead + 1, std::memory_order_release);
-        }
+            return;
 
         buffer[currentWrite & (Capacity - 1)] = item;
         writeIndex.store(currentWrite + 1, std::memory_order_release);
@@ -145,6 +143,8 @@ private:
 
     juce::AudioBuffer<float> dryBuffer;
     juce::AudioBuffer<float> filteredScBuffer;
+    std::vector<float> sampleGains;
+    std::vector<float> sampleScAmps;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SDDuckAudioProcessor)
 };

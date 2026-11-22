@@ -52,7 +52,6 @@ public:
         triggerStartGain = 1.0f;
         oneShotTimeSec = 100.0; // 終了状態
         envelopeFollower = 0.0f;
-        lastTriggerTimeSec = -1.0;
         isArmReady = true;
         activeDepth = 0.8f;
         lastHpf = -1.0f;
@@ -260,7 +259,6 @@ private:
     float activeDepth = 0.8f;
 
     double oneShotTimeSec = 100.0;
-    double lastTriggerTimeSec = -1.0;
     bool isArmReady = true;
     float envelopeFollower = 0.0f;
 
