@@ -44,7 +44,6 @@ void HorizontalBarSlider::setEnabledState(bool shouldBeEnabled)
 
 void HorizontalBarSlider::parameterValueChanged(int, float)
 {
-    // メッセージスレッドで再描画
     juce::MessageManager::callAsync([this]() { repaint(); });
 }
 
@@ -95,7 +94,7 @@ void HorizontalBarSlider::paint(juce::Graphics& g)
     const auto bounds = getLocalBounds();
 
     // 背景
-    g.setColour(UIColors::Bg_Control);
+    g.setColour(theme.bgControl());
     g.fillRect(bounds);
 
     // プログレスバー塗りつぶし (有効時のみ)
@@ -105,29 +104,29 @@ void HorizontalBarSlider::paint(juce::Graphics& g)
         const int fillWidth = static_cast<int>(std::round(bounds.getWidth() * normVal));
         if (fillWidth > 0)
         {
-            g.setColour(UIColors::Bar_Fill);
+            g.setColour(theme.barFill());
             g.fillRect(bounds.withWidth(fillWidth));
         }
     }
 
     // 枠線
-    g.setColour(isDragging ? UIColors::Border_Focus : UIColors::Border_Dark);
+    g.setColour(isDragging ? theme.borderFocus() : theme.borderDark());
     g.drawRect(bounds, 1);
 
     // テキスト描画 (左: ラベル, 右: 数値)
     const int pad = 8;
     auto textArea = bounds.reduced(pad, 0);
 
-    // ラベル (Segoe UI 12.5px bold で視認性向上)
+    // ラベル (Segoe UI 12.5px Bold で高視認性)
     g.setFont(juce::FontOptions("Segoe UI", 12.5f, juce::Font::bold));
-    g.setColour(isEnabled ? UIColors::Text_Secondary : UIColors::Text_Disabled);
+    g.setColour(isEnabled ? theme.textSecondary() : theme.textDisabled());
     g.drawText(label, textArea, juce::Justification::centredLeft, true);
 
     // 数値 (Consolas 12.5px 等幅)
     if (isEnabled && param != nullptr)
     {
         g.setFont(juce::FontOptions("Consolas", 12.5f, juce::Font::plain));
-        g.setColour(UIColors::Text_Primary);
+        g.setColour(theme.textPrimary());
         g.drawText(getFormattedValue(), textArea, juce::Justification::centredRight, true);
     }
 }
@@ -145,13 +144,12 @@ void HorizontalBarSlider::mouseDown(const juce::MouseEvent& e)
 
     if (e.mods.isRightButtonDown())
     {
-        // 右クリック: インライン数値入力エディタ展開
         inlineEditor = std::make_unique<juce::TextEditor>();
         inlineEditor->setBounds(getLocalBounds().reduced(2));
         inlineEditor->setFont(juce::FontOptions("Consolas", 12.0f, juce::Font::plain));
-        inlineEditor->setColour(juce::TextEditor::backgroundColourId, UIColors::Bg_Canvas);
-        inlineEditor->setColour(juce::TextEditor::textColourId, UIColors::Text_Primary);
-        inlineEditor->setColour(juce::TextEditor::outlineColourId, UIColors::Border_Focus);
+        inlineEditor->setColour(juce::TextEditor::backgroundColourId, theme.bgCanvas());
+        inlineEditor->setColour(juce::TextEditor::textColourId, theme.textPrimary());
+        inlineEditor->setColour(juce::TextEditor::outlineColourId, theme.borderFocus());
 
         const float val = param->convertFrom0to1(param->getValue());
         inlineEditor->setText(juce::String(val, 2), false);
@@ -186,7 +184,6 @@ void HorizontalBarSlider::mouseDown(const juce::MouseEvent& e)
 
     if (e.mods.isCtrlDown())
     {
-        // Ctrl + クリック: デフォルト値復帰
         param->beginChangeGesture();
         param->setValueNotifyingHost(param->getDefaultValue());
         param->endChangeGesture();
@@ -209,9 +206,11 @@ void HorizontalBarSlider::mouseDrag(const juce::MouseEvent& e)
     const int deltaX = e.getPosition().x - dragStartPos.x;
     const int deltaY = dragStartPos.y - e.getPosition().y;
 
-    // 上下ドラッグを主、左右も加算
-    float delta = static_cast<float>(deltaX + deltaY) / (e.mods.isShiftDown() ? 1500.0f : 200.0f);
-    float newVal = juce::jlimit(0.0f, 1.0f, dragStartValue + delta);
+    // より大きく動かした軸（XまたはY）を採用し、斜め操作時の相殺を防止
+    const int effectiveDelta = (std::abs(deltaX) >= std::abs(deltaY)) ? deltaX : deltaY;
+
+    const float delta = static_cast<float>(effectiveDelta) / (e.mods.isShiftDown() ? 1500.0f : 200.0f);
+    const float newVal = juce::jlimit(0.0f, 1.0f, dragStartValue + delta);
 
     param->setValueNotifyingHost(newVal);
     repaint();
@@ -232,7 +231,6 @@ void HorizontalBarSlider::mouseDoubleClick(const juce::MouseEvent&)
     if (!isEnabled || param == nullptr)
         return;
 
-    // ダブルクリック: デフォルト復帰
     param->beginChangeGesture();
     param->setValueNotifyingHost(param->getDefaultValue());
     param->endChangeGesture();
@@ -278,30 +276,26 @@ void VisualizerComponent::rebuildBackgroundCache()
     backgroundCache = juce::Image(juce::Image::RGB, w, h, true);
     juce::Graphics g(backgroundCache);
 
-    // 背景塗りつぶし
-    g.setColour(UIColors::Bg_Canvas);
+    g.setColour(theme.bgCanvas());
     g.fillRect(0, 0, w, h);
 
-    // 水平グリッド線: 0dB, -6dB, -12dB, -24dB (固定目盛り)
     const float dbLevels[] = { 0.0f, -6.0f, -12.0f, -24.0f };
     g.setFont(juce::FontOptions("Consolas", 10.0f, juce::Font::plain));
 
     for (float db : dbLevels)
     {
-        // 0dB -> y=0, -24dB -> y=h
         const float norm = -db / 24.0f;
         const int y = static_cast<int>(std::round(norm * (h - 1)));
 
-        g.setColour(UIColors::Grid_Line);
+        g.setColour(theme.gridLine());
         g.drawHorizontalLine(y, 0.0f, static_cast<float>(w));
 
-        g.setColour(UIColors::Text_Disabled);
+        g.setColour(theme.textDisabled());
         juce::String text = juce::String(static_cast<int>(db)) + "dB";
         g.drawText(text, 6, std::max(0, y - 12), 40, 12, juce::Justification::bottomLeft);
     }
 
-    // 拍・補助グリッド線 (垂直)
-    g.setColour(UIColors::Grid_Line);
+    g.setColour(theme.gridLine());
     constexpr int numVerticalLines = 8;
     for (int i = 1; i < numVerticalLines; ++i)
     {
@@ -317,23 +311,19 @@ void VisualizerComponent::resized()
 
 juce::Colour VisualizerComponent::getGrColor(float grDb) const
 {
-    // grDb は負の値 (0 dB 〜 -24 dB)
     if (grDb >= -6.0f)
     {
-        // 0〜-6 dB: GR_Low
-        return UIColors::GR_Low;
+        return theme.grLow();
     }
     else if (grDb >= -15.0f)
     {
-        // -6〜-15 dB: GR_Low と GR_Mid の補間
         const float t = (grDb - (-6.0f)) / (-9.0f);
-        return UIColors::GR_Low.interpolatedWith(UIColors::GR_Mid, juce::jlimit(0.0f, 1.0f, t));
+        return theme.grLow().interpolatedWith(theme.grMid(), juce::jlimit(0.0f, 1.0f, t));
     }
     else
     {
-        // -15〜-24 dB: GR_Mid と GR_High の補間
         const float t = (grDb - (-15.0f)) / (-9.0f);
-        return UIColors::GR_Mid.interpolatedWith(UIColors::GR_High, juce::jlimit(0.0f, 1.0f, t));
+        return theme.grMid().interpolatedWith(theme.grHigh(), juce::jlimit(0.0f, 1.0f, t));
     }
 }
 
@@ -367,11 +357,10 @@ void VisualizerComponent::updateFromFifo()
         const float grDb = 20.0f * std::log10(std::max(0.00001f, minGainFound));
         currentMaxGrDb = grDb;
 
-        // ピークホールド更新: より強い減衰が来たら即時更新
         if (grDb < peakHoldGrDb)
         {
             peakHoldGrDb = grDb;
-            peakHoldFrames = 45; // 60fpsで約0.75秒ホールド
+            peakHoldFrames = 45;
         }
     }
     else
@@ -379,7 +368,6 @@ void VisualizerComponent::updateFromFifo()
         currentMaxGrDb = 0.0f;
     }
 
-    // ホールド時間経過後にスムーズに0.0dBへ減衰
     if (peakHoldFrames > 0)
     {
         peakHoldFrames--;
@@ -389,7 +377,6 @@ void VisualizerComponent::updateFromFifo()
         peakHoldGrDb = std::min(0.0f, peakHoldGrDb + 0.4f);
     }
 
-    // 1秒無音 (約60フレーム) でフリーズ
     if (silenceFrames > 60)
     {
         isFrozen = true;
@@ -408,22 +395,17 @@ void VisualizerComponent::paint(juce::Graphics& g)
     if (w <= 0 || h <= 0)
         return;
 
-    // キャッシュ背景転送
     if (backgroundCache.isValid())
         g.drawImageAt(backgroundCache, 0, 0);
 
-    // 表示するパケット点数 (幅に合わせてサンプリング)
     const int pointsToShow = juce::jlimit(50, maxHistoryPoints, w);
 
     juce::Path prePath;
     juce::Path postPath;
     juce::Path grPath;
-
-    // 削られた差分領域用ポリゴン
     juce::Path diffAreaPath;
 
     bool firstPoint = true;
-    float startGrY = 0.0f;
 
     for (int i = 0; i < pointsToShow; ++i)
     {
@@ -432,12 +414,10 @@ void VisualizerComponent::paint(juce::Graphics& g)
 
         const float x = (static_cast<float>(i) / static_cast<float>(pointsToShow - 1)) * static_cast<float>(w);
 
-        // ゲインリダクション Y座標 (0dB=上端 y=0, -24dB=下端 y=h)
         const float grDb = (pt.minGain > 0.00001f) ? (20.0f * std::log10(pt.minGain)) : -100.0f;
         const float grNorm = juce::jlimit(0.0f, 1.0f, -grDb / 24.0f);
         const float grY = grNorm * static_cast<float>(h);
 
-        // 波形 Post Y座標 (下端基準)
         const float postAmp = juce::jlimit(0.0f, 1.0f, pt.postPeak);
         const float postY = static_cast<float>(h) - (postAmp * static_cast<float>(h) * 0.85f);
 
@@ -449,7 +429,6 @@ void VisualizerComponent::paint(juce::Graphics& g)
 
             diffAreaPath.startNewSubPath(x, 0.0f);
             diffAreaPath.lineTo(x, grY);
-            startGrY = grY;
             firstPoint = false;
         }
         else
@@ -460,32 +439,27 @@ void VisualizerComponent::paint(juce::Graphics& g)
         }
     }
 
-    // 差分領域パスの終了 (天井に戻して閉じる)
     if (!firstPoint)
     {
         diffAreaPath.lineTo(static_cast<float>(w), 0.0f);
         diffAreaPath.closeSubPath();
 
-        // 減衰深度に応じたカラー塗りつぶし (alpha 0.35)
-        const juce::Colour fillColor = getGrColor(currentMaxGrDb).withAlpha(0.35f);
+        const juce::Colour fillColor = getGrColor(peakHoldGrDb).withAlpha(theme.isLight ? 0.40f : 0.35f);
         g.setColour(fillColor);
         g.fillPath(diffAreaPath);
     }
 
-    // 残存波形 (Post-Duck) 描画
     postPath.lineTo(static_cast<float>(w), static_cast<float>(h));
     postPath.closeSubPath();
-    g.setColour(UIColors::Wave_Post.withAlpha(0.25f));
+    g.setColour(theme.wavePost().withAlpha(theme.isLight ? 0.35f : 0.25f));
     g.fillPath(postPath);
-    g.setColour(UIColors::Wave_Post);
+    g.setColour(theme.wavePost());
     g.strokePath(postPath, juce::PathStrokeType(1.0f));
 
-    // ゲインリダクション折れ線 (1.5px ソリッド)
-    g.setColour(getGrColor(currentMaxGrDb));
+    g.setColour(getGrColor(peakHoldGrDb));
     g.strokePath(grPath, juce::PathStrokeType(1.5f));
 
-    // 外枠 1px
-    g.setColour(UIColors::Border_Dark);
+    g.setColour(theme.borderDark());
     g.drawRect(getLocalBounds(), 1);
 }
 
@@ -497,18 +471,10 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
 {
     auto& apvts = audioProcessor.getAPVTS();
 
-    // Direct2D優先
-    juce::SystemStats::getOperatingSystemName();
-
-    // Top Bar ボタン
     auto setupModeButton = [this](juce::TextButton& btn, int modeValue)
     {
         btn.setClickingTogglesState(true);
         btn.setRadioGroupId(1001);
-        btn.setColour(juce::TextButton::buttonColourId, UIColors::Bg_Panel);
-        btn.setColour(juce::TextButton::buttonOnColourId, UIColors::Accent_Teal);
-        btn.setColour(juce::TextButton::textColourOffId, UIColors::Text_Secondary);
-        btn.setColour(juce::TextButton::textColourOnId, UIColors::Text_Primary);
         btn.onClick = [this, modeValue]()
         {
             if (auto* param = audioProcessor.getAPVTS().getParameter(SDDuckAudioProcessor::paramMode))
@@ -531,7 +497,6 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
     else if (initialMode == 1) btnModeAudio.setToggleState(true, juce::dontSendNotification);
     else btnModeMidi.setToggleState(true, juce::dontSendNotification);
 
-    // Rate コンボ
     comboSyncRate.addItemList({ "Rate: 1/1", "Rate: 1/2", "Rate: 1/4", "Rate: 1/8", "Rate: 1/16", "Rate: 1/4T", "Rate: 1/8D" }, 1);
     comboSyncRate.setSelectedId(static_cast<int>(*apvts.getRawParameterValue(SDDuckAudioProcessor::paramSyncRate)) + 1, juce::dontSendNotification);
     comboSyncRate.onChange = [this]()
@@ -545,7 +510,6 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
     };
     addAndMakeVisible(comboSyncRate);
 
-    // Detect コンボ
     comboScDetect.addItemList({ "Detect: Follow", "Detect: One-Shot" }, 1);
     comboScDetect.setSelectedId(static_cast<int>(*apvts.getRawParameterValue(SDDuckAudioProcessor::paramScDetect)) + 1, juce::dontSendNotification);
     comboScDetect.onChange = [this]()
@@ -559,7 +523,6 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
     };
     addAndMakeVisible(comboScDetect);
 
-    // MIDI Note コンボ
     comboMidiNote.addItem("Note: Any", 1);
     for (int note = 0; note < 128; ++note)
     {
@@ -577,16 +540,11 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
     };
     addAndMakeVisible(comboMidiNote);
 
-    // SC Status ラベル
     lblScStatus.setFont(juce::FontOptions("Consolas", 11.0f, juce::Font::plain));
-    lblScStatus.setColour(juce::Label::textColourId, UIColors::Accent_Teal);
     lblScStatus.setText("SC: ACTIVE", juce::dontSendNotification);
     addAndMakeVisible(lblScStatus);
 
-    // SC MON ボタン
     btnScListen.setClickingTogglesState(true);
-    btnScListen.setColour(juce::TextButton::buttonColourId, UIColors::Bg_Panel);
-    btnScListen.setColour(juce::TextButton::buttonOnColourId, UIColors::Accent_Teal);
     btnScListen.onClick = [this]()
     {
         if (auto* param = audioProcessor.getAPVTS().getParameter(SDDuckAudioProcessor::paramScListen))
@@ -598,7 +556,15 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
     };
     addAndMakeVisible(btnScListen);
 
-    // Visualizer
+    // テーマ切り替えボタン
+    btnThemeToggle.onClick = [this]()
+    {
+        currentTheme.isLight = !currentTheme.isLight;
+        btnThemeToggle.setButtonText(currentTheme.isLight ? "DARK" : "LIGHT");
+        applyTheme();
+    };
+    addAndMakeVisible(btnThemeToggle);
+
     addAndMakeVisible(visualizer);
 
     comboTimebase.addItemList({ "View: 1 Beat", "View: 2 Beats", "View: 1 Bar", "View: 500 ms", "View: 1000 ms" }, 1);
@@ -610,14 +576,10 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
     addAndMakeVisible(comboTimebase);
 
     lblMaxGr.setFont(juce::FontOptions("Consolas", 11.0f, juce::Font::plain));
-    lblMaxGr.setColour(juce::Label::backgroundColourId, UIColors::Bg_Canvas.withAlpha(0.85f));
-    lblMaxGr.setColour(juce::Label::textColourId, UIColors::Text_Primary);
-    lblMaxGr.setColour(juce::Label::outlineColourId, UIColors::Border_Dark);
     lblMaxGr.setText("Max GR:  0.0 dB", juce::dontSendNotification);
     lblMaxGr.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(lblMaxGr);
 
-    // Control Panel 水平バーゲージスライダー
     sliderDepth   = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramDepth), "Depth", "%");
     sliderAttack  = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramAttack), "Attack", "ms");
     sliderHold    = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramHold), "Hold", "ms");
@@ -639,10 +601,7 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
     addAndMakeVisible(sliderScHpf.get());
     addAndMakeVisible(sliderScLpf.get());
 
-    // Split 複合セル
     btnSplitToggle.setClickingTogglesState(true);
-    btnSplitToggle.setColour(juce::TextButton::buttonColourId, UIColors::Bg_Control);
-    btnSplitToggle.setColour(juce::TextButton::buttonOnColourId, UIColors::Accent_Teal);
     const bool initialSplit = *apvts.getRawParameterValue(SDDuckAudioProcessor::paramSplitEnabled) > 0.5f;
     btnSplitToggle.setToggleState(initialSplit, juce::dontSendNotification);
     btnSplitToggle.setButtonText(initialSplit ? "ON" : "OFF");
@@ -662,11 +621,8 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
     sliderSplitFreq = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramSplitFreq), "Low Split", "Hz");
     addAndMakeVisible(sliderSplitFreq.get());
 
-    // Target Channel ボタン
     const int initialTarget = static_cast<int>(*apvts.getRawParameterValue(SDDuckAudioProcessor::paramChannelMode));
     btnTargetChannel.setButtonText(initialTarget == 0 ? "Target: Stereo" : "Target: Mid Only");
-    btnTargetChannel.setColour(juce::TextButton::buttonColourId, UIColors::Bg_Control);
-    btnTargetChannel.setColour(juce::TextButton::textColourOffId, UIColors::Text_Primary);
     btnTargetChannel.onClick = [this]()
     {
         auto* param = audioProcessor.getAPVTS().getParameter(SDDuckAudioProcessor::paramChannelMode);
@@ -681,21 +637,70 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
     };
     addAndMakeVisible(btnTargetChannel);
 
-    // 初期モード依存設定
     updateModeDependencies();
+    applyTheme();
 
-    // ウィンドウサイズ設定 (デフォルト: 680 x 380, 最小: 500 x 300)
     setSize(680, 380);
     setResizable(true, true);
     setResizeLimits(500, 300, 1920, 1080);
 
-    // タイマー開始 (60fps)
     startTimerHz(60);
 }
 
 SDDuckAudioProcessorEditor::~SDDuckAudioProcessorEditor()
 {
     stopTimer();
+}
+
+void SDDuckAudioProcessorEditor::applyTheme()
+{
+    // 各コンポーネントへテーマ色を伝達
+    visualizer.setTheme(currentTheme);
+
+    auto updateSliderTheme = [this](HorizontalBarSlider* s)
+    {
+        if (s != nullptr)
+            s->setTheme(currentTheme);
+    };
+
+    updateSliderTheme(sliderDepth.get());
+    updateSliderTheme(sliderAttack.get());
+    updateSliderTheme(sliderHold.get());
+    updateSliderTheme(sliderRelease.get());
+    updateSliderTheme(sliderCurve.get());
+    updateSliderTheme(sliderMix.get());
+    updateSliderTheme(sliderThreshOrVel.get());
+    updateSliderTheme(sliderScHpf.get());
+    updateSliderTheme(sliderScLpf.get());
+    updateSliderTheme(sliderSplitFreq.get());
+
+    auto applyBtnStyle = [this](juce::TextButton& btn)
+    {
+        btn.setColour(juce::TextButton::buttonColourId, currentTheme.bgPanel());
+        btn.setColour(juce::TextButton::buttonOnColourId, currentTheme.accentTeal());
+        btn.setColour(juce::TextButton::textColourOffId, currentTheme.textSecondary());
+        btn.setColour(juce::TextButton::textColourOnId, currentTheme.textPrimary());
+    };
+
+    applyBtnStyle(btnModeSync);
+    applyBtnStyle(btnModeAudio);
+    applyBtnStyle(btnModeMidi);
+    applyBtnStyle(btnScListen);
+    applyBtnStyle(btnThemeToggle);
+
+    btnSplitToggle.setColour(juce::TextButton::buttonColourId, currentTheme.bgControl());
+    btnSplitToggle.setColour(juce::TextButton::buttonOnColourId, currentTheme.accentTeal());
+    btnSplitToggle.setColour(juce::TextButton::textColourOffId, currentTheme.textSecondary());
+    btnSplitToggle.setColour(juce::TextButton::textColourOnId, currentTheme.textPrimary());
+
+    btnTargetChannel.setColour(juce::TextButton::buttonColourId, currentTheme.bgControl());
+    btnTargetChannel.setColour(juce::TextButton::textColourOffId, currentTheme.textPrimary());
+
+    lblMaxGr.setColour(juce::Label::backgroundColourId, currentTheme.bgCanvas().withAlpha(0.85f));
+    lblMaxGr.setColour(juce::Label::textColourId, currentTheme.textPrimary());
+    lblMaxGr.setColour(juce::Label::outlineColourId, currentTheme.borderDark());
+
+    repaint();
 }
 
 void SDDuckAudioProcessorEditor::updateModeDependencies()
@@ -740,7 +745,6 @@ void SDDuckAudioProcessorEditor::timerCallback()
 {
     visualizer.updateFromFifo();
 
-    // Max GR 表示更新（等幅フォントかつ固定桁数で横揺れ防止）
     const float maxGrDb = visualizer.getCurrentMaxGrDb();
     std::ostringstream ss;
     ss << "Max GR: ";
@@ -750,13 +754,11 @@ void SDDuckAudioProcessorEditor::timerCallback()
         ss << std::fixed << std::setprecision(1) << maxGrDb << " dB";
     lblMaxGr.setText(ss.str(), juce::dontSendNotification);
 
-    // SC 入力ステータス更新
     auto& apvts = audioProcessor.getAPVTS();
     const int mode = static_cast<int>(*apvts.getRawParameterValue(SDDuckAudioProcessor::paramMode));
     const bool scListen = *apvts.getRawParameterValue(SDDuckAudioProcessor::paramScListen) > 0.5f;
     btnScListen.setToggleState(scListen, juce::dontSendNotification);
 
-    // SCステータス表示
     if (mode == 1) // Audioモード
     {
         const bool scActive = audioProcessor.getIsSidechainActive();
@@ -766,28 +768,27 @@ void SDDuckAudioProcessorEditor::timerCallback()
             std::ostringstream scSs;
             scSs << "SC: ACTIVE (" << std::fixed << std::setprecision(1) << scPeak << "dB)";
             lblScStatus.setText(scSs.str(), juce::dontSendNotification);
-            lblScStatus.setColour(juce::Label::textColourId, UIColors::Accent_Teal);
+            lblScStatus.setColour(juce::Label::textColourId, currentTheme.accentTeal());
         }
         else
         {
             lblScStatus.setText("SC: NO SIGNAL", juce::dontSendNotification);
-            lblScStatus.setColour(juce::Label::textColourId, UIColors::Status_Warn);
+            lblScStatus.setColour(juce::Label::textColourId, currentTheme.statusWarn());
         }
     }
     else
     {
         lblScStatus.setText("SC: READY", juce::dontSendNotification);
-        lblScStatus.setColour(juce::Label::textColourId, UIColors::Text_Secondary);
+        lblScStatus.setColour(juce::Label::textColourId, currentTheme.textSecondary());
     }
 
-    // Target Channel ボタンの同期
     const int currentTarget = static_cast<int>(*apvts.getRawParameterValue(SDDuckAudioProcessor::paramChannelMode));
     btnTargetChannel.setButtonText(currentTarget == 0 ? "Target: Stereo" : "Target: Mid Only");
 }
 
 void SDDuckAudioProcessorEditor::paint(juce::Graphics& g)
 {
-    g.fillAll(UIColors::Bg_Main);
+    g.fillAll(currentTheme.bgMain());
 }
 
 void SDDuckAudioProcessorEditor::resized()
@@ -800,8 +801,6 @@ void SDDuckAudioProcessorEditor::resized()
     const int visualizerHeight = h - topBarHeight - controlPanelHeight;
 
     // --- Top Bar (28px) ---
-    auto topArea = juce::Rectangle<int>(0, 0, w, topBarHeight);
-
     // 左: モード切替タブ (SYNC / AUDIO / MIDI)
     constexpr int btnWidth = 55;
     btnModeSync.setBounds(0, 0, btnWidth, topBarHeight);
@@ -815,15 +814,16 @@ void SDDuckAudioProcessorEditor::resized()
     comboScDetect.setBounds(centerX, 2, centerWidth, topBarHeight - 4);
     comboMidiNote.setBounds(centerX, 2, centerWidth, topBarHeight - 4);
 
-    // 右: SC Status & SC MON
-    constexpr int monBtnWidth = 50;
-    btnScListen.setBounds(w - monBtnWidth, 0, monBtnWidth, topBarHeight);
-    lblScStatus.setBounds(w - monBtnWidth - 140, 0, 135, topBarHeight);
+    // 右: SC Status & SC MON & THEME
+    constexpr int themeBtnWidth = 50;
+    constexpr int monBtnWidth = 45;
+    btnThemeToggle.setBounds(w - themeBtnWidth, 0, themeBtnWidth, topBarHeight);
+    btnScListen.setBounds(w - themeBtnWidth - monBtnWidth, 0, monBtnWidth, topBarHeight);
+    lblScStatus.setBounds(w - themeBtnWidth - monBtnWidth - 140, 0, 135, topBarHeight);
 
     // --- Visualizer ---
     visualizer.setBounds(0, topBarHeight, w, visualizerHeight);
 
-    // ビジュアライザ内オーバーレイ
     comboTimebase.setBounds(8, topBarHeight + visualizerHeight - 26, 110, 20);
     lblMaxGr.setBounds(w - 130, topBarHeight + visualizerHeight - 26, 122, 20);
 
@@ -842,7 +842,6 @@ void SDDuckAudioProcessorEditor::resized()
     sliderDepth->setBounds(getCellBounds(0, 0));
     sliderAttack->setBounds(getCellBounds(0, 1));
 
-    // Split 複合セル (行0, 列2): 左側36pxがON/OFFトグル、右側が周波数スライダー
     auto splitCell = getCellBounds(0, 2);
     btnSplitToggle.setBounds(splitCell.getX(), splitCell.getY(), 40, splitCell.getHeight());
     sliderSplitFreq->setBounds(splitCell.getX() + 40, splitCell.getY(), splitCell.getWidth() - 40, splitCell.getHeight());

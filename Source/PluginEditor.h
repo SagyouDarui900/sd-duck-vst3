@@ -4,28 +4,30 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <vector>
 
-namespace UIColors
+struct ThemeColors
 {
-    const juce::Colour Bg_Main       = juce::Colour::fromString("#FF2B2B2B");
-    const juce::Colour Bg_Panel      = juce::Colour::fromString("#FF333333");
-    const juce::Colour Bg_Canvas     = juce::Colour::fromString("#FF1E1E1E");
-    const juce::Colour Bg_Control    = juce::Colour::fromString("#FF222222");
-    const juce::Colour Bg_Hover      = juce::Colour::fromString("#FF3D3D3D");
-    const juce::Colour Border_Dark   = juce::Colour::fromString("#FF181818");
-    const juce::Colour Border_Light  = juce::Colour::fromString("#FF4A4A4A");
-    const juce::Colour Border_Focus  = juce::Colour::fromString("#FF3BA596");
-    const juce::Colour Grid_Line     = juce::Colour::fromString("#FF2A2A2A");
-    const juce::Colour Text_Primary  = juce::Colour::fromString("#FFF0F0F0");
-    const juce::Colour Text_Secondary= juce::Colour::fromString("#FFB8B8B8");
-    const juce::Colour Text_Disabled = juce::Colour::fromString("#FF5A5A5A");
-    const juce::Colour Accent_Teal   = juce::Colour::fromString("#FF2D9384");
-    const juce::Colour Bar_Fill      = juce::Colour::fromString("#FF265E56");
-    const juce::Colour Wave_Post     = juce::Colour::fromString("#FFC8D6D5");
-    const juce::Colour GR_Low        = juce::Colour::fromString("#FF45B8AC");
-    const juce::Colour GR_Mid        = juce::Colour::fromString("#FFD99B26");
-    const juce::Colour GR_High       = juce::Colour::fromString("#FFD9483B");
-    const juce::Colour Status_Warn   = juce::Colour::fromString("#FFC94A38");
-}
+    bool isLight = false;
+
+    juce::Colour bgMain() const       { return isLight ? juce::Colour::fromString("#FFEAEAEA") : juce::Colour::fromString("#FF2B2B2B"); }
+    juce::Colour bgPanel() const      { return isLight ? juce::Colour::fromString("#FFDFDFDF") : juce::Colour::fromString("#FF333333"); }
+    juce::Colour bgCanvas() const     { return isLight ? juce::Colour::fromString("#FFF5F5F5") : juce::Colour::fromString("#FF1E1E1E"); }
+    juce::Colour bgControl() const    { return isLight ? juce::Colour::fromString("#FFE2E2E2") : juce::Colour::fromString("#FF222222"); }
+    juce::Colour bgHover() const      { return isLight ? juce::Colour::fromString("#FFD4D4D4") : juce::Colour::fromString("#FF3D3D3D"); }
+    juce::Colour borderDark() const   { return isLight ? juce::Colour::fromString("#FFB8B8B8") : juce::Colour::fromString("#FF181818"); }
+    juce::Colour borderLight() const  { return isLight ? juce::Colour::fromString("#FFC8C8C8") : juce::Colour::fromString("#FF4A4A4A"); }
+    juce::Colour borderFocus() const  { return isLight ? juce::Colour::fromString("#FF2D9384") : juce::Colour::fromString("#FF3BA596"); }
+    juce::Colour gridLine() const     { return isLight ? juce::Colour::fromString("#FFE0E0E0") : juce::Colour::fromString("#FF2A2A2A"); }
+    juce::Colour textPrimary() const  { return isLight ? juce::Colour::fromString("#FF1A1A1A") : juce::Colour::fromString("#FFF0F0F0"); }
+    juce::Colour textSecondary() const{ return isLight ? juce::Colour::fromString("#FF555555") : juce::Colour::fromString("#FFB8B8B8"); }
+    juce::Colour textDisabled() const { return isLight ? juce::Colour::fromString("#FF999999") : juce::Colour::fromString("#FF5A5A5A"); }
+    juce::Colour accentTeal() const   { return isLight ? juce::Colour::fromString("#FF228274") : juce::Colour::fromString("#FF2D9384"); }
+    juce::Colour barFill() const      { return isLight ? juce::Colour::fromString("#FF88C2B8") : juce::Colour::fromString("#FF265E56"); }
+    juce::Colour wavePost() const     { return isLight ? juce::Colour::fromString("#FF4F6765") : juce::Colour::fromString("#FFC8D6D5"); }
+    juce::Colour grLow() const        { return isLight ? juce::Colour::fromString("#FF278D82") : juce::Colour::fromString("#FF45B8AC"); }
+    juce::Colour grMid() const        { return isLight ? juce::Colour::fromString("#FFBD7A11") : juce::Colour::fromString("#FFD99B26"); }
+    juce::Colour grHigh() const       { return isLight ? juce::Colour::fromString("#FFB83126") : juce::Colour::fromString("#FFD9483B"); }
+    juce::Colour statusWarn() const   { return isLight ? juce::Colour::fromString("#FFC03222") : juce::Colour::fromString("#FFC94A38"); }
+};
 
 // 水平バーゲージスライダー
 class HorizontalBarSlider : public juce::Component,
@@ -49,6 +51,7 @@ public:
     void setEnabledState(bool shouldBeEnabled);
     void setCustomLabel(const juce::String& newLabel) { label = newLabel; repaint(); }
     void updateParameter(juce::RangedAudioParameter* newParam);
+    void setTheme(const ThemeColors& newTheme) { theme = newTheme; repaint(); }
 
 private:
     void parameterValueChanged(int parameterIndex, float newValue) override;
@@ -64,6 +67,7 @@ private:
     float dragStartValue = 0.0f;
     juce::Point<int> dragStartPos;
 
+    ThemeColors theme;
     std::unique_ptr<juce::TextEditor> inlineEditor;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(HorizontalBarSlider)
@@ -82,6 +86,12 @@ public:
     void updateFromFifo();
     void setTimebaseIndex(int index);
     float getCurrentMaxGrDb() const noexcept { return peakHoldGrDb; }
+    void setTheme(const ThemeColors& newTheme)
+    {
+        theme = newTheme;
+        rebuildBackgroundCache();
+        repaint();
+    }
 
 private:
     void rebuildBackgroundCache();
@@ -89,6 +99,7 @@ private:
 
     SDDuckAudioProcessor& processor;
     juce::Image backgroundCache;
+    ThemeColors theme;
 
     // 波形描画履歴リングバッファ
     struct HistoryPoint
@@ -127,8 +138,10 @@ public:
 private:
     void timerCallback() override;
     void updateModeDependencies();
+    void applyTheme();
 
     SDDuckAudioProcessor& audioProcessor;
+    ThemeColors currentTheme;
 
     // Top Bar
     juce::TextButton btnModeSync { "SYNC" };
@@ -141,6 +154,7 @@ private:
 
     juce::Label lblScStatus;
     juce::TextButton btnScListen { "MON" };
+    juce::TextButton btnThemeToggle { "LIGHT" };
 
     // Visualizer
     VisualizerComponent visualizer;
