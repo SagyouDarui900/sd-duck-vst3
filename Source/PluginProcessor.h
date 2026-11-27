@@ -103,8 +103,9 @@ public:
     float getLastSidechainPeakDb() const noexcept { return lastScPeakDb.load(std::memory_order_relaxed); }
     bool getIsSidechainActive() const noexcept { return lastScActive.load(std::memory_order_relaxed); }
 
-    bool getIsLightTheme() const noexcept { return isLightTheme.load(std::memory_order_relaxed); }
-    void setIsLightTheme(bool isLight) noexcept { isLightTheme.store(isLight, std::memory_order_relaxed); }
+    // テーマID: 0=LightOrange, 1=DarkOrange, 2=LightCyan, 3=DarkCyan (既定は DarkOrange)
+    int getSavedThemeId() const noexcept { return savedThemeId.load(std::memory_order_relaxed); }
+    void setSavedThemeId(int themeId) noexcept { savedThemeId.store(juce::jlimit(0, 3, themeId), std::memory_order_relaxed); }
 
     // パラメータID定数
     static const juce::String paramMode;
@@ -136,7 +137,7 @@ private:
 
     // パケット集計用
     LockFreeFifo<VisualPacket, 2048> visualFifo;
-    std::atomic<bool> isLightTheme { false };
+    std::atomic<int> savedThemeId { 1 };
     std::atomic<float> lastScPeakDb { -100.0f };
     std::atomic<bool> lastScActive { false };
     int sampleAccumulator = 0;

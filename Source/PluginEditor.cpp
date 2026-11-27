@@ -2,87 +2,34 @@
 #include <iomanip>
 #include <sstream>
 
-// ==============================================================================
-// SDDuckLookAndFeel 実装 (Anti-AI Slop: 角丸0px・フラット直角デザイン)
-// ==============================================================================
-void SDDuckLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& button,
-                                            const juce::Colour&,
-                                            bool shouldDrawButtonAsHighlighted,
-                                            bool)
-{
-    const auto bounds = button.getLocalBounds();
-    const bool isOn = button.getToggleState();
-
-    juce::Colour bg = isOn ? theme.accentTeal()
-                           : (shouldDrawButtonAsHighlighted ? theme.bgHover() : theme.bgControl());
-
-    g.setColour(bg);
-    g.fillRect(bounds);
-
-    g.setColour(theme.borderDark());
-    g.drawRect(bounds, 1);
-}
-
-void SDDuckLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& button,
-                                      bool,
-                                      bool)
-{
-    const auto bounds = button.getLocalBounds();
-    const bool isOn = button.getToggleState();
-
-    g.setFont(juce::FontOptions("Segoe UI", 12.0f, juce::Font::bold));
-    g.setColour(isOn ? theme.textPrimary() : theme.textSecondary());
-    g.drawText(button.getButtonText(), bounds, juce::Justification::centred, false);
-}
-
-void SDDuckLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height, bool,
-                                    int, int, int, int,
-                                    juce::ComboBox&)
-{
-    const auto bounds = juce::Rectangle<int>(0, 0, width, height);
-
-    g.setColour(theme.bgControl());
-    g.fillRect(bounds);
-
-    g.setColour(theme.borderDark());
-    g.drawRect(bounds, 1);
-
-    // フラットな三角矢印
-    const int arrowSize = 6;
-    const int arrowX = width - 13;
-    const int arrowY = height / 2 - 2;
-
-    juce::Path p;
-    p.addTriangle(static_cast<float>(arrowX), static_cast<float>(arrowY),
-                  static_cast<float>(arrowX + arrowSize), static_cast<float>(arrowY),
-                  static_cast<float>(arrowX + arrowSize * 0.5f), static_cast<float>(arrowY + 4));
-    g.setColour(theme.textSecondary());
-    g.fillPath(p);
-}
-
-juce::Font SDDuckLookAndFeel::getComboBoxFont(juce::ComboBox&)
-{
-    return juce::FontOptions("Segoe UI", 11.5f, juce::Font::bold);
-}
-
-void SDDuckLookAndFeel::drawPopupMenuBackground(juce::Graphics& g, int width, int height)
-{
-    g.setColour(theme.bgControl());
-    g.fillRect(0, 0, width, height);
-    g.setColour(theme.borderDark());
-    g.drawRect(0, 0, width, height, 1);
-}
+// ボタン / コンボボックスの描画は sdduck::RetroLookAndFeel（SD-Verb と共通）が行う。
+// SDDuckLookAndFeel は削除した。
 
 // ==============================================================================
 // HorizontalBarSlider 実装
 // ==============================================================================
 HorizontalBarSlider::HorizontalBarSlider(juce::RangedAudioParameter* parameter,
                                          const juce::String& labelText,
-                                         const juce::String& unitSuffix)
-    : param(parameter), label(labelText), suffix(unitSuffix)
+                                         const juce::String& unitSuffix,
+                                         const sdduck::RetroLookAndFeel* laf)
+    : param(parameter), label(labelText), suffix(unitSuffix), lookAndFeel(laf)
 {
     if (param != nullptr)
         param->addListener(this);
+}
+
+juce::FontOptions HorizontalBarSlider::getHeavyFontOptions(float height) const
+{
+    if (lookAndFeel != nullptr)
+        return lookAndFeel->getHeavyFontOptions(height);
+    return juce::FontOptions(height, juce::Font::bold);
+}
+
+juce::FontOptions HorizontalBarSlider::getNumericFontOptions(float height) const
+{
+    if (lookAndFeel != nullptr)
+        return lookAndFeel->getNumericFontOptions(height);
+    return juce::FontOptions(height, juce::Font::bold);
 }
 
 HorizontalBarSlider::~HorizontalBarSlider()
@@ -185,23 +132,31 @@ void HorizontalBarSlider::paint(juce::Graphics& g)
         }
     }
 
-    // 枠線
-    g.setColour(isDragging ? theme.borderFocus() : theme.borderDark());
-    g.drawRect(bounds, 1);
+    // 枠線 (通常: textMain 1px、ドラッグ中: mainAccent 1.5px)
+    if (isDragging)
+    {
+        g.setColour(theme.borderFocus());
+        g.drawRect(bounds, 1.5f);
+    }
+    else
+    {
+        g.setColour(theme.borderDark());
+        g.drawRect(bounds, 1);
+    }
 
     // テキスト描画 (左: ラベル, 右: 数値)
     const int pad = 8;
     auto textArea = bounds.reduced(pad, 0);
 
-    // ラベル (Segoe UI 12.5px Bold で高視認性)
-    g.setFont(juce::FontOptions("Segoe UI", 12.5f, juce::Font::bold));
+    // ラベル (Heavy 12.5px)
+    g.setFont(getHeavyFontOptions(12.5f));
     g.setColour(isEnabled ? theme.textSecondary() : theme.textDisabled());
     g.drawText(label, textArea, juce::Justification::centredLeft, true);
 
-    // 数値 (Consolas 12.5px 等幅: 無効時も設定値を確認できるよう薄く描画)
+    // 数値 (Numeric 12.5px: 無効時も設定値を確認できるよう薄く描画)
     if (param != nullptr)
     {
-        g.setFont(juce::FontOptions("Consolas", 12.5f, juce::Font::plain));
+        g.setFont(getNumericFontOptions(12.5f));
         g.setColour(isEnabled ? theme.textPrimary() : theme.textDisabled());
         g.drawText(getFormattedValue(), textArea, juce::Justification::centredRight, true);
     }
@@ -222,7 +177,7 @@ void HorizontalBarSlider::mouseDown(const juce::MouseEvent& e)
     {
         inlineEditor = std::make_unique<juce::TextEditor>();
         inlineEditor->setBounds(getLocalBounds().reduced(2));
-        inlineEditor->setFont(juce::FontOptions("Consolas", 12.0f, juce::Font::plain));
+        inlineEditor->setFont(getNumericFontOptions(12.0f));
         inlineEditor->setColour(juce::TextEditor::backgroundColourId, theme.bgCanvas());
         inlineEditor->setColour(juce::TextEditor::textColourId, theme.textPrimary());
         inlineEditor->setColour(juce::TextEditor::outlineColourId, theme.borderFocus());
@@ -339,8 +294,8 @@ void HorizontalBarSlider::mouseWheelMove(const juce::MouseEvent&, const juce::Mo
 // ==============================================================================
 // VisualizerComponent 実装
 // ==============================================================================
-VisualizerComponent::VisualizerComponent(SDDuckAudioProcessor& p)
-    : processor(p)
+VisualizerComponent::VisualizerComponent(SDDuckAudioProcessor& p, const sdduck::RetroLookAndFeel& laf)
+    : processor(p), lookAndFeel(&laf)
 {
     history.resize(maxHistoryPoints);
     coordsCache.resize(static_cast<size_t>(maxHistoryPoints));
@@ -367,7 +322,10 @@ void VisualizerComponent::rebuildBackgroundCache()
     g.fillRect(0, 0, w, h);
 
     const float dbLevels[] = { 0.0f, -6.0f, -12.0f, -24.0f };
-    g.setFont(juce::FontOptions("Consolas", 10.0f, juce::Font::plain));
+    if (lookAndFeel != nullptr)
+        g.setFont(lookAndFeel->getNumericFontOptions(10.0f));
+    else
+        g.setFont(juce::FontOptions(10.0f, juce::Font::bold));
 
     for (float db : dbLevels)
     {
@@ -540,7 +498,17 @@ void VisualizerComponent::paint(juce::Graphics& g)
         }
     }
 
-    // 1. Pre波形とPost波形の間の差分領域（削られた量）をセグメントごとに動的カラーで塗りつぶし
+    // 1. 残存波形（Post波形）の塗りつぶし（subDecor、不透明）
+    if (pointsToShow > 1)
+    {
+        postPath.lineTo(coordsCache[pointsToShow - 1].x, static_cast<float>(h));
+        postPath.closeSubPath();
+
+        g.setColour(theme.palette.subDecor);
+        g.fillPath(postPath);
+    }
+
+    // 2. Pre波形とPost波形の間の差分領域（削られた量）をセグメントごとに動的カラーで塗りつぶし（GR色、不透明）
     for (int i = 0; i < pointsToShow - 1; ++i)
     {
         const auto& p0 = coordsCache[i];
@@ -562,25 +530,19 @@ void VisualizerComponent::paint(juce::Graphics& g)
             diffSegment.lineTo(p1.x, y1Post);
             diffSegment.closeSubPath();
 
-            const juce::Colour segColor = getGrColor(segGrDb).withAlpha(theme.isLight ? 0.40f : 0.38f);
-            g.setColour(segColor);
+            g.setColour(getGrColor(segGrDb));
             g.fillPath(diffSegment);
         }
     }
 
-    // 2. 残存波形（Post波形）の塗りつぶしと輪郭線
+    // 3. 残存波形（Post波形）の輪郭線（textMain、1.5px）
     if (pointsToShow > 1)
     {
-        postPath.lineTo(coordsCache[pointsToShow - 1].x, static_cast<float>(h));
-        postPath.closeSubPath();
-
-        g.setColour(theme.wavePost().withAlpha(theme.isLight ? 0.35f : 0.22f));
-        g.fillPath(postPath);
         g.setColour(theme.wavePost());
-        g.strokePath(postPath, juce::PathStrokeType(1.0f));
+        g.strokePath(postPath, juce::PathStrokeType(1.5f));
     }
 
-    // 3. 上端のGR折れ線（時間軸動的カラー、線幅1.5px）
+    // 4. 上端のGR折れ線（時間軸動的カラー、線幅1.5px）
     for (int i = 0; i < pointsToShow - 1; ++i)
     {
         const auto& p0 = coordsCache[i];
@@ -592,21 +554,20 @@ void VisualizerComponent::paint(juce::Graphics& g)
     }
 
     g.setColour(theme.borderDark());
-    g.drawRect(getLocalBounds(), 1);
+    g.drawRect(getLocalBounds(), 1.5f);
 }
 
 // ==============================================================================
 // SDDuckAudioProcessorEditor 実装
 // ==============================================================================
 SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
-    : AudioProcessorEditor(&p), audioProcessor(p), visualizer(p)
+    : AudioProcessorEditor(&p), audioProcessor(p), visualizer(p, lookAndFeel)
 {
     // 既存パケットを安全に読み捨て (SPSC スレッド安全な FIFO フラッシュ)
     VisualPacket dummy;
     while (audioProcessor.getVisualFifo().pop(dummy)) {}
 
-    currentTheme.isLight = audioProcessor.getIsLightTheme();
-    btnThemeToggle.setButtonText(currentTheme.isLight ? "DARK" : "LIGHT");
+    currentTheme.setThemeId(static_cast<sdduck::ThemeId>(juce::jlimit(0, 3, audioProcessor.getSavedThemeId())));
 
     setLookAndFeel(&lookAndFeel);
 
@@ -682,7 +643,7 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
     };
     addAndMakeVisible(comboMidiNote);
 
-    lblScStatus.setFont(juce::FontOptions("Consolas", 11.0f, juce::Font::plain));
+    lblScStatus.setFont(lookAndFeel.getNumericFontOptions(11.0f));
     lblScStatus.setText("SC: ACTIVE", juce::dontSendNotification);
     addAndMakeVisible(lblScStatus);
 
@@ -698,15 +659,22 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
     };
     addAndMakeVisible(btnScListen);
 
-    // テーマ切り替えボタン
+    // テーマ切り替えボタン (表示は切り替え先: LIGHT/DARK、ORG/CYN)
     btnThemeToggle.onClick = [this]()
     {
-        currentTheme.isLight = !currentTheme.isLight;
-        btnThemeToggle.setButtonText(currentTheme.isLight ? "DARK" : "LIGHT");
-        audioProcessor.setIsLightTheme(currentTheme.isLight);
+        const int id = static_cast<int>(currentTheme.themeId) ^ 1;
+        currentTheme.setThemeId(static_cast<sdduck::ThemeId>(id));
         applyTheme();
     };
     addAndMakeVisible(btnThemeToggle);
+
+    btnColorTheme.onClick = [this]()
+    {
+        const int id = static_cast<int>(currentTheme.themeId) ^ 2;
+        currentTheme.setThemeId(static_cast<sdduck::ThemeId>(id));
+        applyTheme();
+    };
+    addAndMakeVisible(btnColorTheme);
 
     addAndMakeVisible(visualizer);
 
@@ -718,21 +686,21 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
     };
     addAndMakeVisible(comboTimebase);
 
-    lblMaxGr.setFont(juce::FontOptions("Consolas", 11.0f, juce::Font::plain));
+    lblMaxGr.setFont(lookAndFeel.getNumericFontOptions(11.0f));
     lblMaxGr.setText("Max GR:  0.0 dB", juce::dontSendNotification);
     lblMaxGr.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(lblMaxGr);
 
-    sliderDepth   = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramDepth), "Depth", "%");
-    sliderAttack  = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramAttack), "Attack", "ms");
-    sliderHold    = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramHold), "Hold", "ms");
-    sliderRelease = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramRelease), "Release", "ms");
-    sliderCurve   = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramCurve), "Curve", "");
-    sliderMix     = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramMix), "Mix", "%");
+    sliderDepth   = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramDepth), "Depth", "%", &lookAndFeel);
+    sliderAttack  = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramAttack), "Attack", "ms", &lookAndFeel);
+    sliderHold    = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramHold), "Hold", "ms", &lookAndFeel);
+    sliderRelease = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramRelease), "Release", "ms", &lookAndFeel);
+    sliderCurve   = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramCurve), "Curve", "", &lookAndFeel);
+    sliderMix     = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramMix), "Mix", "%", &lookAndFeel);
 
-    sliderThreshOrVel = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramThreshold), "Threshold", "dB");
-    sliderScHpf   = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramScHpf), "SC HPF", "Hz");
-    sliderScLpf   = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramScLpf), "SC LPF", "Hz");
+    sliderThreshOrVel = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramThreshold), "Threshold", "dB", &lookAndFeel);
+    sliderScHpf   = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramScHpf), "SC HPF", "Hz", &lookAndFeel);
+    sliderScLpf   = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramScLpf), "SC LPF", "Hz", &lookAndFeel);
 
     addAndMakeVisible(sliderDepth.get());
     addAndMakeVisible(sliderAttack.get());
@@ -762,7 +730,7 @@ SDDuckAudioProcessorEditor::SDDuckAudioProcessorEditor(SDDuckAudioProcessor& p)
     };
     addAndMakeVisible(btnSplitToggle);
 
-    sliderSplitFreq = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramSplitFreq), "Split Freq", "Hz");
+    sliderSplitFreq = std::make_unique<HorizontalBarSlider>(apvts.getParameter(SDDuckAudioProcessor::paramSplitFreq), "Split Freq", "Hz", &lookAndFeel);
     sliderSplitFreq->setEnabledState(initialSplit);
     addAndMakeVisible(sliderSplitFreq.get());
 
@@ -800,7 +768,12 @@ SDDuckAudioProcessorEditor::~SDDuckAudioProcessorEditor()
 
 void SDDuckAudioProcessorEditor::applyTheme()
 {
-    lookAndFeel.setTheme(currentTheme);
+    lookAndFeel.setTheme(currentTheme.themeId);
+    audioProcessor.setSavedThemeId(static_cast<int>(currentTheme.themeId));
+
+    // ボタン表示は切り替え先を示す (LIGHT/DARK、ORG/CYN)
+    btnThemeToggle.setButtonText(currentTheme.isLight() ? "DARK" : "LIGHT");
+    btnColorTheme.setButtonText(currentTheme.isCyan() ? "ORG" : "CYN");
 
     comboSyncRate.sendLookAndFeelChange();
     comboScDetect.sendLookAndFeelChange();
@@ -827,29 +800,8 @@ void SDDuckAudioProcessorEditor::applyTheme()
     updateSliderTheme(sliderScLpf.get());
     updateSliderTheme(sliderSplitFreq.get());
 
-    auto applyBtnStyle = [this](juce::TextButton& btn)
-    {
-        btn.setColour(juce::TextButton::buttonColourId, currentTheme.bgPanel());
-        btn.setColour(juce::TextButton::buttonOnColourId, currentTheme.accentTeal());
-        btn.setColour(juce::TextButton::textColourOffId, currentTheme.textSecondary());
-        btn.setColour(juce::TextButton::textColourOnId, currentTheme.textPrimary());
-    };
-
-    applyBtnStyle(btnModeSync);
-    applyBtnStyle(btnModeAudio);
-    applyBtnStyle(btnModeMidi);
-    applyBtnStyle(btnScListen);
-    applyBtnStyle(btnThemeToggle);
-
-    btnSplitToggle.setColour(juce::TextButton::buttonColourId, currentTheme.bgControl());
-    btnSplitToggle.setColour(juce::TextButton::buttonOnColourId, currentTheme.accentTeal());
-    btnSplitToggle.setColour(juce::TextButton::textColourOffId, currentTheme.textSecondary());
-    btnSplitToggle.setColour(juce::TextButton::textColourOnId, currentTheme.textPrimary());
-
-    btnTargetChannel.setColour(juce::TextButton::buttonColourId, currentTheme.bgControl());
-    btnTargetChannel.setColour(juce::TextButton::textColourOffId, currentTheme.textPrimary());
-
-    lblMaxGr.setColour(juce::Label::backgroundColourId, currentTheme.bgCanvas().withAlpha(0.85f));
+    // ボタンの色は RetroLookAndFeel がトグル状態から描く。個別の setColour はしない。
+    lblMaxGr.setColour(juce::Label::backgroundColourId, currentTheme.bgCanvas());
     lblMaxGr.setColour(juce::Label::textColourId, currentTheme.textPrimary());
     lblMaxGr.setColour(juce::Label::outlineColourId, currentTheme.borderDark());
 
@@ -953,7 +905,7 @@ void SDDuckAudioProcessorEditor::timerCallback()
             std::ostringstream scSs;
             scSs << "SC: ACTIVE (" << std::fixed << std::setprecision(1) << scPeak << "dB)";
             lblScStatus.setText(scSs.str(), juce::dontSendNotification);
-            lblScStatus.setColour(juce::Label::textColourId, currentTheme.accentTeal());
+            lblScStatus.setColour(juce::Label::textColourId, currentTheme.accent());
         }
         else
         {
@@ -1004,12 +956,14 @@ void SDDuckAudioProcessorEditor::resized()
     comboScDetect.setBounds(centerX, 2, centerWidth, topBarHeight - 4);
     comboMidiNote.setBounds(centerX, 2, centerWidth, topBarHeight - 4);
 
-    // 右: SC Status & SC MON & THEME
+    // 右: SC Status & SC MON & THEME (右端から ORG/CYN, LIGHT/DARK, MON の順)
+    constexpr int colorBtnWidth = 50;
     constexpr int themeBtnWidth = 50;
     constexpr int monBtnWidth = 45;
-    btnThemeToggle.setBounds(w - themeBtnWidth, 0, themeBtnWidth, topBarHeight);
-    btnScListen.setBounds(w - themeBtnWidth - monBtnWidth, 0, monBtnWidth, topBarHeight);
-    lblScStatus.setBounds(w - themeBtnWidth - monBtnWidth - 140, 0, 135, topBarHeight);
+    btnColorTheme.setBounds(w - colorBtnWidth, 0, colorBtnWidth, topBarHeight);
+    btnThemeToggle.setBounds(w - colorBtnWidth - themeBtnWidth, 0, themeBtnWidth, topBarHeight);
+    btnScListen.setBounds(w - colorBtnWidth - themeBtnWidth - monBtnWidth, 0, monBtnWidth, topBarHeight);
+    lblScStatus.setBounds(w - colorBtnWidth - themeBtnWidth - monBtnWidth - 140, 0, 135, topBarHeight);
 
     // --- Visualizer ---
     visualizer.setBounds(0, topBarHeight, w, visualizerHeight);

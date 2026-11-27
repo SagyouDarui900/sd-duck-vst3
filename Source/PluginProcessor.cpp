@@ -487,7 +487,7 @@ juce::AudioProcessorEditor* SDDuckAudioProcessor::createEditor()
 void SDDuckAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     auto state = apvts.copyState();
-    state.setProperty("isLightTheme", isLightTheme.load(std::memory_order_relaxed), nullptr);
+    state.setProperty("themeId", savedThemeId.load(std::memory_order_relaxed), nullptr);
     std::unique_ptr<juce::XmlElement> xml(state.createXml());
     copyXmlToBinary(*xml, destData);
 }
@@ -498,8 +498,10 @@ void SDDuckAudioProcessor::setStateInformation(const void* data, int sizeInBytes
     if (xmlState != nullptr && xmlState->hasTagName(apvts.state.getType()))
     {
         auto tree = juce::ValueTree::fromXml(*xmlState);
-        if (tree.hasProperty("isLightTheme"))
-            setIsLightTheme(static_cast<bool>(tree.getProperty("isLightTheme")));
+        if (tree.hasProperty("themeId"))
+            setSavedThemeId(static_cast<int>(tree.getProperty("themeId")));
+        else if (tree.hasProperty("isLightTheme"))
+            setSavedThemeId(static_cast<bool>(tree.getProperty("isLightTheme")) ? 0 : 1);
 
         apvts.replaceState(tree);
     }

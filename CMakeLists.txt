@@ -26,11 +26,18 @@ juce_add_plugin(SD-Duck
     PRODUCT_NAME "SD-Duck"
 )
 
+juce_add_binary_data(SDDuck_Assets
+    SOURCES
+        Resources/Fonts/EncodeSansExpanded-Black.ttf
+        Resources/Fonts/ChakraPetch-SemiBold.ttf
+)
+
 target_sources(SD-Duck PRIVATE
     Source/PluginProcessor.h
     Source/PluginProcessor.cpp
     Source/PluginEditor.h
     Source/PluginEditor.cpp
+    Source/ui/RetroLookAndFeel.h
     Source/DuckingEngine.h
     Source/CrossoverFilter.h
 )
@@ -47,6 +54,7 @@ if (MSVC)
 endif()
 
 target_link_libraries(SD-Duck PRIVATE
+    SDDuck_Assets
     juce::juce_audio_utils
     juce::juce_audio_processors
     juce::juce_dsp
